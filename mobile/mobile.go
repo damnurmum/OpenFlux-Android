@@ -54,10 +54,10 @@ func Start(documentURL, encryptionSecret string) string {
 
 	utils.EnableDebug()
 	utils.SetLogSink(appendLog)
-	appendLog("[ANDROID] Запуск транспорта Yandex Docs")
+	appendLog("[ANDROID] Запуск транспорта Volga (vyandex)")
 
 	config := transport.DefaultConfig()
-	var inner transport.Transport = yandex.NewYandexDocsTransport(documentURL, config)
+	var inner transport.Transport = yandex.NewYandexVolgaTransport(documentURL, config)
 	if encryptionSecret != "" {
 		encrypted, err := transport.NewEncryptedTransport(inner, encryptionSecret, documentURL, false)
 		if err != nil {
