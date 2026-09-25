@@ -653,6 +653,7 @@ type CupsonlineTransport struct {
 	jarMu     sync.RWMutex
 
 	stopCh     chan struct{}
+	stopOnce   sync.Once
 	statsStart time.Time
 }
 
@@ -761,16 +762,16 @@ func (t *CupsonlineTransport) Start() error {
 	return nil
 }
 
+// Stop may be called more than once (a Session stops a carrier through
+// every layer that wraps it); only the first call closes the channels.
 func (t *CupsonlineTransport) Stop() error {
-	select {
-	case <-t.stopCh:
-	default:
+	t.stopOnce.Do(func() {
 		close(t.stopCh)
-	}
-	for _, ws := range t.wss {
-		ws.closed.Store(true)
-		close(ws.ctx)
-	}
+		for _, ws := range t.wss {
+			ws.closed.Store(true)
+			close(ws.ctx)
+		}
+	})
 	t.SetConnected(false)
 	return t.BaseTransport.Stop()
 }
