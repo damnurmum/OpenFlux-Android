@@ -112,7 +112,8 @@ public final class OpenFluxExitService extends Service {
         String sessionExtra = intent == null ? null : intent.getStringExtra(OpenFluxTunnelService.EXTRA_SESSION_TRANSPORTS);
         sessionTransports = sessionExtra == null ? "" : sessionExtra;
         String url = intent == null ? null : intent.getStringExtra(OpenFluxTunnelService.EXTRA_DOCUMENT_URL);
-        if (!"oneme".equals(transportType) && sessionTransports.isEmpty()
+        // MAX takes a token; a Cups.online exit creates its rooms itself.
+        if (!"oneme".equals(transportType) && !"cupsonline".equals(transportType) && sessionTransports.isEmpty()
                 && (url == null || !url.startsWith("https://"))) {
             failEarly("Некорректная ссылка на документ");
             return START_NOT_STICKY;

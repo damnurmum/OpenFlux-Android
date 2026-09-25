@@ -191,7 +191,9 @@ public final class OpenFluxProxyService extends Service {
                 ? "yandex" : transportTypeExtra;
         String sessionExtra = intent == null ? null : intent.getStringExtra(EXTRA_SESSION_TRANSPORTS);
         sessionTransports = sessionExtra == null ? "" : sessionExtra;
-        boolean needsUrl = !"oneme".equals(transportType) && sessionTransports.isEmpty();
+        // MAX takes a token; Cups.online a base64 room code, checked by the core.
+        boolean needsUrl = !"oneme".equals(transportType) && !"cupsonline".equals(transportType)
+                && sessionTransports.isEmpty();
 
         String url = intent == null ? null : intent.getStringExtra(EXTRA_DOCUMENT_URL);
         if (needsUrl && (url == null || !url.startsWith("https://"))) {
