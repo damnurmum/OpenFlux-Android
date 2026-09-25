@@ -1,5 +1,5 @@
 [Unit]
-Description=OpenFlux encrypted exit node (l3, Session: direct + Yandex + Cups.online)
+Description=OpenFlux encrypted exit node (l3, Session: direct + Yandex)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/root/openflux/etc
 ExecStartPre=/bin/sh -c '/usr/sbin/iptables -C OUTPUT -p tcp --tcp-flags RST RST -j DROP 2>/dev/null || /usr/sbin/iptables -I OUTPUT 1 -p tcp --tcp-flags RST RST -j DROP'
-ExecStart=/bin/sh -c 'exec /root/openflux/openflux --role=exit --mode=l3 --negotiate --transports=direct:100,yandex:50,cupsonline:30 --direct-listen=0.0.0.0:8445 --encryption-key-file /root/openflux/etc/encryption-key --cookie-store /root/openflux/etc/cookies-yandex.json --url "$(cat /root/openflux/etc/document-url)"'
+ExecStart=/bin/sh -c 'exec /root/openflux/openflux --role=exit --mode=l3 --negotiate --transports=direct:100,yandex:50 --direct-listen=0.0.0.0:8445 --encryption-key-file /root/openflux/etc/encryption-key --cookie-store /root/openflux/etc/cookies-yandex.json --url "$(cat /root/openflux/etc/document-url)"'
 ExecStopPost=/bin/sh -c '/usr/sbin/iptables -C OUTPUT -p tcp --tcp-flags RST RST -j DROP 2>/dev/null && /usr/sbin/iptables -D OUTPUT -p tcp --tcp-flags RST RST -j DROP || true'
 Restart=on-failure
 RestartSec=5
