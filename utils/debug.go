@@ -46,6 +46,12 @@ func Debugf(format string, args ...interface{}) {
 	}
 }
 
+// Infof always logs, regardless of verbose mode. Used for user-facing status
+// lines (e.g. cups room open/close) that must be visible without --debug.
+func Infof(format string, args ...interface{}) {
+	log.Output(2, fmt.Sprintf(format, args...))
+}
+
 // SetLogSink mirrors debug messages to an embedding application.
 func SetLogSink(sink func(string)) {
 	logSinkMu.Lock()
