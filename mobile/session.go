@@ -51,12 +51,19 @@ func parseSessionSpecs(specsJSON string) ([]sessionSpec, string, error) {
 // specsJSON is what parseSessionSpecs reads. exit builds the exit node's
 // side (the phone as an l4 exit).
 func buildSession(specsJSON, secret string, exit bool) (transport.Transport, error) {
+	t, _, err := buildSessionWith(specsJSON, secret, exit)
+	return t, err
+}
+
+// buildSessionWith is buildSession that also returns the Session, for
+// callers that need per-transport state.
+func buildSessionWith(specsJSON, secret string, exit bool) (transport.Transport, *transport.Session, error) {
 	specs, context, err := parseSessionSpecs(specsJSON)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(secret) < 16 {
-		return nil, fmt.Errorf("для режима Session нужен ключ шифрования не короче 16 символов")
+		return nil, nil, fmt.Errorf("для режима Session нужен ключ шифрования не короче 16 символов")
 	}
 
 	// Like the CLI: an l4 exit terminates flows in gVisor and has no raw
@@ -70,7 +77,7 @@ func buildSession(specsJSON, secret string, exit bool) (transport.Transport, err
 		MaxPacketSize: transport.MaxNegotiatedPacket,
 	}, exit)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	m := manager.New(sess, nil, secret, context)
 	config := transport.DefaultConfig()
@@ -80,14 +87,14 @@ func buildSession(specsJSON, secret string, exit bool) (transport.Transport, err
 		types[spec.Name] = spec.Type
 		raw, err := newRawTransport(spec.Type, spec.URL, spec.Params, config, exit)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", spec.Name, err)
+			return nil, nil, fmt.Errorf("%s: %w", spec.Name, err)
 		}
 		if err := sess.AddTransport(spec.Name, raw, secret, context, spec.Priority); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		provider, _ := raw.(manager.CookieProvider)
 		if err := m.Add(spec.Name, spec.Type, raw, spec.Priority, provider); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if provider != nil {
 			keys[spec.Name] = spec.Type + " " + spec.URL
@@ -101,7 +108,7 @@ func buildSession(specsJSON, secret string, exit bool) (transport.Transport, err
 		// the phone's UI can still pass them locally.
 		attachSessionCaptcha(m, keys, nil)
 		appendLog("[ANDROID] Session: шифрование AES-256-GCM, ожидание клиента")
-		return m, nil
+		return m, sess, nil
 	}
 
 	// The side stack for exit checks shares the tunnel; a PortDemux hands
@@ -111,7 +118,7 @@ func buildSession(specsJSON, secret string, exit bool) (transport.Transport, err
 	setAuthProxy(proxy)
 	attachSessionCaptcha(m, keys, proxy)
 	appendLog("[ANDROID] Session: шифрование AES-256-GCM, согласование с нодой")
-	return demux, nil
+	return demux, sess, nil
 }
 
 // sessionContext is the encryption context. The exit derives it from its

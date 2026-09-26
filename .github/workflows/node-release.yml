@@ -1,0 +1,52 @@
+name: Node release
+
+# Publishes the exit-node core that deploy/node-install.sh installs. The
+# build is reproducible (same Go, -trimpath, no VCS stamp, empty build id),
+# so its hashes must equal the ones pinned in the script; a mismatch fails
+# the job instead of publishing binaries no install would accept.
+on:
+  push:
+    tags:
+      - "node-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.8"
+          cache: false
+
+      - name: Build core binaries
+        run: |
+          mkdir -p dist
+          for a in amd64 arm64 arm; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$a GOARM=7 go build -trimpath -buildvcs=false \
+              -ldflags="-s -w -buildid=" -o dist/openflux-linux-$a .
+          done
+          cd dist && sha256sum openflux-linux-* > SHA256SUMS && cat SHA256SUMS
+
+      - name: Check against deploy/node-install.sh
+        run: |
+          grep -q "^CORE_VERSION=\"${GITHUB_REF_NAME}\"" deploy/node-install.sh \
+            || { echo "::error::CORE_VERSION in deploy/node-install.sh is not ${GITHUB_REF_NAME}"; exit 1; }
+          for a in amd64 arm64 arm; do
+            want=$(sed -n "s/^SHA_$a=\"\(.*\)\"/\1/p" deploy/node-install.sh)
+            got=$(sha256sum dist/openflux-linux-$a | cut -d' ' -f1)
+            [ "$want" = "$got" ] \
+              || { echo "::error::openflux-linux-$a: built $got, node-install.sh pins $want"; exit 1; }
+          done
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/openflux-linux-* dist/SHA256SUMS \
+            --title "OpenFlux node $GITHUB_REF_NAME" \
+            --notes "Ядро выходной ноды для мастера «Создать свою ноду» в Android-приложении. Хеши сверены с deploy/node-install.sh."
