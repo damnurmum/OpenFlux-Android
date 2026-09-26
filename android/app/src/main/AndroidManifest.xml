@@ -50,6 +50,18 @@
             android:screenOrientation="fullSensor"
             tools:replace="screenOrientation" />
 
+        <!-- "Создать свою ноду": installs a channel on the user's VDS. -->
+        <activity
+            android:name=".NodeWizardActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Signs in to Yandex and creates the channel's document. -->
+        <activity
+            android:name=".YandexDocActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name=".CaptchaActivity"
             android:exported="false"

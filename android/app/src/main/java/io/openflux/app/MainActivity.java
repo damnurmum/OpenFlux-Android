@@ -108,6 +108,7 @@ public final class MainActivity extends Activity {
     // undocumented file-naming behavior.
     static final String SETTINGS_PREFS_NAME = "openflux_settings";
     private static final int TUNNEL_PERMISSION_REQUEST = 42;
+    private static final int NODE_WIZARD_REQUEST = 7302;
     private static final int NOTIFICATION_PERMISSION_REQUEST = 43;
     private static final int DEFAULT_MTU = 1400;
     private static final int PAGE_HOME = 0;
@@ -2018,6 +2019,14 @@ public final class MainActivity extends Activity {
         titles.addView(text("Профили", 25, text, true));
         titles.addView(text("Наборы параметров для разных серверов", 12, secondary, false), matchWrap());
         header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
+        ImageButton nodeButton = iconButton(R.drawable.ic_terminal, "Создать свою ноду");
+        nodeButton.setOnClickListener(v -> {
+            tap(v);
+            openNodeWizard();
+        });
+        LinearLayout.LayoutParams nodeParams = new LinearLayout.LayoutParams(dp(44), dp(44));
+        nodeParams.rightMargin = dp(8);
+        header.addView(nodeButton, nodeParams);
         ImageButton scanButton = iconButton(R.drawable.ic_qr_scan, "Сканировать QR");
         scanButton.setOnClickListener(v -> {
             tap(v);
@@ -2039,6 +2048,10 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams emptyParams = matchWrap();
             emptyParams.topMargin = dp(24);
             page.addView(empty, emptyParams);
+            Button createNode = primaryButton("Создать свою ноду на VDS", this::openNodeWizard);
+            LinearLayout.LayoutParams nodeButtonParams = new LinearLayout.LayoutParams(-1, dp(52));
+            nodeButtonParams.topMargin = dp(16);
+            page.addView(createNode, nodeButtonParams);
             return wrapScroll(page);
         }
 
@@ -3644,8 +3657,27 @@ public final class MainActivity extends Activity {
             if (scan.getContents() != null) importShareLink(scan.getContents());
             return;
         }
+        if (requestCode == NODE_WIZARD_REQUEST) {
+            // The wizard saved its profile straight to the store.
+            profiles = profileStore.load();
+            long id = data != null ? data.getLongExtra(NodeWizardActivity.EXTRA_PROFILE_ID, -1) : -1;
+            if (id >= 0 && !isConnectionRunning()) selectProfile(id);
+            else showPage(PAGE_PROFILES);
+            if (id >= 0) appendLog("Профиль своей ноды добавлен");
+            return;
+        }
         if (requestCode == TUNNEL_PERMISSION_REQUEST && resultCode == RESULT_OK) startTunnel();
         else if (requestCode == TUNNEL_PERMISSION_REQUEST) appendLog("[ERROR] Разрешение на создание туннеля не выдано");
+    }
+
+    // Installs a new channel (a new node, or another user on a server that
+    // already has some) on the user's VDS; see NodeWizardActivity.
+    private void openNodeWizard() {
+        if (isConnectionRunning()) {
+            Toast.makeText(this, "Сначала отключите OpenFlux: мастер сам проверит новую ноду", Toast.LENGTH_LONG).show();
+            return;
+        }
+        startActivityForResult(new Intent(this, NodeWizardActivity.class), NODE_WIZARD_REQUEST);
     }
 
     private void putProfileExtras(Intent intent) {
