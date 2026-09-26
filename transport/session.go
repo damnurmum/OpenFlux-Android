@@ -507,6 +507,21 @@ func (s *Session) ActiveTransport() string {
 	return ""
 }
 
+// LiveTransports names the carriers that currently reach the peer, highest
+// priority first.
+func (s *Session) LiveTransports() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var names []string
+	if !s.ready || s.stopped {
+		return names
+	}
+	for _, l := range s.liveLinksLocked() {
+		names = append(names, l.name)
+	}
+	return names
+}
+
 // IsExit reports whether this is the exit node's side of the session.
 func (s *Session) IsExit() bool { return s.exit }
 
