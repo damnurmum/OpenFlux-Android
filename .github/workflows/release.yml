@@ -23,16 +23,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-          cache: true
+          go-version-file: core/go.mod
+          cache-dependency-path: core/mobile/go.sum
 
       - name: Build cross-platform binaries
+        # The core is the upstream repository, checked out as core/.
+        working-directory: core
         run: |
-          mkdir -p dist
-          build() { GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build -o "dist/openflux-$1-$2$3" .; }
+          mkdir -p ../dist
+          build() { GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build -o "../dist/openflux-$1-$2$3" .; }
           build darwin  amd64 ""
           build darwin  arm64 ""
           build linux   amd64 ""

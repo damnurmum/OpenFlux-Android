@@ -117,9 +117,13 @@ either is exposed.
 The exit node and desktop client are the same binary; only the flags differ.
 Prebuilt Linux `amd64`/`arm64` binaries (plus macOS and Windows builds) are
 attached to every [GitHub Release](https://github.com/damnurmum/OpenFlux-Android/releases/latest)
-alongside the Android APKs. To build it yourself instead:
+alongside the Android APKs. The core is the upstream
+[OpenFlux](https://github.com/p1neappleXpress/OpenFlux) repository, checked
+out here as the `core/` submodule. To build it yourself instead:
 
 ```bash
+git clone --recursive https://github.com/damnurmum/OpenFlux-Android.git
+cd OpenFlux-Android/core
 go build -o openflux .
 ```
 
@@ -243,7 +247,8 @@ client and exit node must use the same `--codec`.
 ## Build and install the Android app
 
 Set `ANDROID_SDK_ROOT` (or `ANDROID_HOME`) and ensure `gomobile` and Gradle are
-available, then run:
+available. Clone with `--recursive` (or run `git submodule update --init` in an
+existing clone) so the `core/` submodule is there, then run:
 
 ```bash
 go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260908204917-8b95e45f8d3e
@@ -272,37 +277,25 @@ See [android/README.md](android/README.md) for Android-specific details.
 
 ```
 OpenFlux-Android/
-  main.go                          # Desktop/exit-node CLI entry
-  bench/                           # --role=bench-send/bench-sink throughput harness
-  tunclient/                       # macOS utun client, socket-exclusion routes, signal handling
-  transport/
-    transport.go                   # Transport interface
-    batched.go, framing.go         # BatchedTransport (coalescing + zstd)
-    compressor.go                  # Legacy per-packet LZ4 codec
-    encrypted.go                   # Optional AES-256-GCM wrapper
-    yandex/, oneme/, cupsonline/, mailru/   # Transport backends
-  tunnel/
-    tunnel.go, endpoint.go         # Client tunnel (gVisor)
-    exit.go, proxy_exit.go         # l4 exit (gVisor + net.Dial)
-    l3/                            # l3 exit: SNAT/DNAT, conntrack, per-OS raw backend
-    windivert/                     # WinDivert backend (present, not wired to l3 yet)
-  socks5/                          # SOCKS5 server (client fallback)
-  network/, utils/                 # Checksums/packet parsing, logging
-  mobile/                          # gomobile bridge consumed by the Android app
+  core/                            # Upstream OpenFlux (submodule): CLI, transports, tunnel, mobile/ bridge
   android/                         # Android tunnel client (this fork's addition)
-  build_android_app.sh             # Build the Android APKs
+  build_android_app.sh             # Build the Android APKs against core/mobile
   deploy/openflux.service          # Sample systemd unit for the exit node
+  docs/                            # Fork documentation
 ```
+
+The fork's own core, as it was before switching to the upstream submodule,
+is kept on the [`fork-core`](https://github.com/damnurmum/OpenFlux-Android/tree/fork-core) branch.
 
 ## Development and security
 
-Run checks before committing:
+Core changes go to the upstream repository; its CI runs the Go tests. To
+move this repository to a newer core, update the submodule and rebuild:
 
 ```bash
-gofmt -w $(git ls-files '*.go')
-go test ./...
-go vet ./...
-git diff --check
+git -C core fetch origin && git -C core checkout origin/main
+./build_android_app.sh
+git add core && git commit -m "core: update to upstream <commit>"
 ```
 
 Contributions are described in [docs/en/CONTRIBUTING.md](docs/en/CONTRIBUTING.md).

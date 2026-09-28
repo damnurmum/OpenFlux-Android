@@ -122,9 +122,13 @@ chmod 600 document-url encryption-key
 только флаги. Готовые бинарники под Linux `amd64`/`arm64` (плюс сборки под
 macOS и Windows) прикреплены к каждому
 [GitHub-релизу](https://github.com/damnurmum/OpenFlux-Android/releases/latest)
-рядом с Android APK. Чтобы собрать самостоятельно:
+рядом с Android APK. Ядро это репозиторий апстрима
+[OpenFlux](https://github.com/p1neappleXpress/OpenFlux), подключённый здесь
+сабмодулем `core/`. Чтобы собрать самостоятельно:
 
 ```bash
+git clone --recursive https://github.com/damnurmum/OpenFlux-Android.git
+cd OpenFlux-Android/core
 go build -o openflux .
 ```
 
@@ -249,7 +253,9 @@ Batched и legacy wire-форматы не совместимы между со�
 ## Сборка и установка Android-приложения
 
 Задайте `ANDROID_SDK_ROOT` (или `ANDROID_HOME`), убедитесь, что доступны
-`gomobile` и Gradle, затем выполните:
+`gomobile` и Gradle. Клонируйте с `--recursive` (или выполните
+`git submodule update --init` в уже склонированном репозитории), чтобы появился
+сабмодуль `core/`, затем выполните:
 
 ```bash
 go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260908204917-8b95e45f8d3e
@@ -278,37 +284,26 @@ gomobile init
 
 ```
 OpenFlux-Android/
-  main.go                          # Точка входа десктопного/exit-node CLI
-  bench/                           # Замер производительности --role=bench-send/bench-sink
-  tunclient/                       # macOS utun-клиент, прямые маршруты сокетов, сигналы
-  transport/
-    transport.go                   # Интерфейс Transport
-    batched.go, framing.go         # BatchedTransport (склейка + zstd)
-    compressor.go                  # Legacy per-packet LZ4-кодек
-    encrypted.go                   # Опциональная AES-256-GCM обёртка
-    yandex/, oneme/, cupsonline/, mailru/   # Бэкенды транспортов
-  tunnel/
-    tunnel.go, endpoint.go         # Клиентский туннель (gVisor)
-    exit.go, proxy_exit.go         # l4 exit (gVisor + net.Dial)
-    l3/                            # l3 exit: SNAT/DNAT, conntrack, raw-бэкенд по ОС
-    windivert/                     # WinDivert-бэкенд (есть, но к l3 не подключён)
-  socks5/                          # SOCKS5-сервер (fallback на клиенте)
-  network/, utils/                 # Контрольные суммы/разбор пакетов, логирование
-  mobile/                          # gomobile-мост, используется Android-приложением
+  core/                            # Апстрим OpenFlux (сабмодуль): CLI, транспорты, туннель, мост mobile/
   android/                         # Android-клиент туннеля (добавление этого форка)
-  build_android_app.sh             # Сборка Android APK
+  build_android_app.sh             # Сборка Android APK поверх core/mobile
   deploy/openflux.service          # Пример systemd-юнита для выходной ноды
+  docs/                            # Документация форка
 ```
+
+Собственное ядро форка, каким оно было до перехода на сабмодуль апстрима,
+лежит в ветке [`fork-core`](https://github.com/damnurmum/OpenFlux-Android/tree/fork-core).
 
 ## Разработка и безопасность
 
-Перед коммитом прогоните проверки:
+Изменения ядра отправляются в репозиторий апстрима, его CI гоняет Go-тесты.
+Чтобы перевести этот репозиторий на более новое ядро, обновите сабмодуль и
+пересоберите:
 
 ```bash
-gofmt -w $(git ls-files '*.go')
-go test ./...
-go vet ./...
-git diff --check
+git -C core fetch origin && git -C core checkout origin/main
+./build_android_app.sh
+git add core && git commit -m "core: update to upstream <commit>"
 ```
 
 Как контрибьютить - в [docs/ru/CONTRIBUTING.md](docs/ru/CONTRIBUTING.md).

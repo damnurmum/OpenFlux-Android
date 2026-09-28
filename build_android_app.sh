@@ -58,8 +58,15 @@ export ANDROID_SDK_ROOT="$SDK_ROOT"
 export ANDROID_NDK_HOME="$NDK_ROOT"
 export PATH="$(dirname -- "$GOMOBILE_BIN"):$PATH"
 
+if [ ! -f "$SCRIPT_DIR/core/mobile/go.mod" ]; then
+    echo "The core submodule is missing. Run: git submodule update --init"
+    exit 1
+fi
+
 (
-    cd "$SCRIPT_DIR/mobile"
+    # The core (and its gomobile bridge) is the upstream repository,
+    # checked out as the core/ submodule.
+    cd "$SCRIPT_DIR/core/mobile"
     # github.com/wlynxg/anet (pulled in transitively by the oneme/WebRTC
     # transport) still uses a //go:linkname into net.zoneCache that Go's
     # linker rejects by default since the 1.23 linkname hardening; no
@@ -70,7 +77,7 @@ export PATH="$(dirname -- "$GOMOBILE_BIN"):$PATH"
         -androidapi=26 \
         -javapkg=io.openflux.bridge \
         -ldflags="-checklinkname=0" \
-        -o ../android/app/libs/openflux.aar \
+        -o "$SCRIPT_DIR/android/app/libs/openflux.aar" \
         .
 )
 
