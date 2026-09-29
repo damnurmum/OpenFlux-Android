@@ -10,6 +10,10 @@ on:
         description: Existing Git tag to publish
         required: true
         default: v0.3.0
+      version_code:
+        description: New Android versionCode when repairing an existing release
+        required: false
+        type: string
 
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
@@ -25,6 +29,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Set Android version for a repaired release
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.version_code != '' }}
+        env:
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          tag = os.environ["RELEASE_TAG"]
+          code = os.environ["VERSION_CODE"]
+          if not re.fullmatch(r"v\d+\.\d+\.\d+", tag) or not code.isdecimal() or int(code) < 1:
+              raise SystemExit("Expected a vX.Y.Z tag and positive Android versionCode")
+          path = pathlib.Path("android/app/build.gradle")
+          source = path.read_text()
+          source, codes = re.subn(r"(?m)^(\s*versionCode)\s+\d+\s*$", rf"\g<1> {code}", source)
+          source, names = re.subn(r'(?m)^(\s*versionName)\s+"[^"]+"\s*$', rf'\g<1> "{tag[1:]}"', source)
+          if (codes, names) != (1, 1):
+              raise SystemExit("Could not set exactly one versionCode and versionName")
+          path.write_text(source)
+          PY
 
       - uses: actions/setup-go@v5
         with:
@@ -75,7 +103,17 @@ jobs:
         run: GRADLE_BIN="$(command -v gradle)" ./build_android_app.sh
 
       - name: Verify APK signatures
-        run: for apk in dist/OpenFlux-android-*-release.apk; do "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"; done
+        env:
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          for apk in dist/OpenFlux-android-*-release.apk; do
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+            package_line=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | sed -n '1p')
+            printf '%s\n' "$package_line" | grep -Fq "versionName='${RELEASE_TAG#v}'"
+            if [ -n "$VERSION_CODE" ]; then
+              printf '%s\n' "$package_line" | grep -Fq "versionCode='$VERSION_CODE'"
+            fi
+          done
 
       - name: Generate checksums
         run: cd dist && sha256sum OpenFlux-android-*-release.apk > SHA256SUMS
@@ -94,6 +132,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              dist/OpenFlux-android-*-release.apk \
+              dist/SHA256SUMS \
+              --clobber
+            exit 0
+          fi
           # A hand-written description in .github/release-notes/<tag>.md wins
           # over the generic one below.
           notes=".github/release-notes/$RELEASE_TAG.md"
