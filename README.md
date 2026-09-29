@@ -53,8 +53,6 @@ Android tunnel or SOCKS5 client -> encrypted document transport -> Linux exit no
 - a VPS node wizard under Profiles → +: SSH connection, Yandex Docs, Mail.ru Docs and
   Cups.online transport choices (with Direct as backup), an installation plan,
   channel verification and optional node auto-updates;
-- an option on Home to send a Yandex sign-in to the exit node over an active
-  Session;
 - five pluggable transports - Yandex.Docs, Yandex Volga, Mail.ru Docs,
   Cups.online and MAX/OneMe - plus a choice of wire codec (batched+zstd, the
   default, or legacy per-packet LZ4 for compatibility with older exit nodes);
@@ -102,9 +100,6 @@ shows its current state. Before installation the profile is saved as unverified
 until the connection check confirms the node works. The app does not save SSH
 passwords or private keys.
 
-For an active Session that uses a Yandex transport, Home offers a button to
-send a Yandex sign-in to the exit node. Sign in through the built-in browser,
-then send the cookies while the Session is connected.
 The QR button in Profiles can scan with the camera or read a photo from the gallery.
 
 ## Requirements

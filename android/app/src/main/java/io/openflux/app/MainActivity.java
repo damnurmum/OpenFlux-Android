@@ -1320,15 +1320,6 @@ public final class MainActivity extends Activity {
         page.addView(activeParams, activeParamsParams);
         staggerIn(activeParams, 130);
 
-        Profile profile = selectedProfile();
-        if (!MODE_EXIT.equals(connectionMode) && canOfferYandexLogin(profile)) {
-            Button sendLogin = primaryButton("Передать вход в Яндекс ноде",
-                    () -> startActivity(new Intent(this, ExitLoginActivity.class)));
-            LinearLayout.LayoutParams loginParams = new LinearLayout.LayoutParams(-1, dp(48));
-            loginParams.topMargin = dp(8);
-            page.addView(sendLogin, loginParams);
-        }
-
         exitShareCard = null;
         exitShareShown = null;
         if (MODE_EXIT.equals(connectionMode)) {
@@ -1448,21 +1439,6 @@ public final class MainActivity extends Activity {
         String localIp = getLocalIpAddress();
         String address = localIp != null ? localIp + ":" + proxyPort : "IP не определён";
         return address + (proxyAuthEnabled ? " (с паролем)" : " (без пароля)");
-    }
-
-    private static boolean canOfferYandexLogin(Profile profile) {
-        // Cookie handoff is a Session feature. Check every selected Session
-        // carrier because Yandex can be an extra rather than the main one.
-        if (profile == null || !profile.session) return false;
-        if (isYandexTransport(profile.transportType)) return true;
-        for (Profile.Transport transport : profile.extraTransports) {
-            if (isYandexTransport(transport.type)) return true;
-        }
-        return false;
-    }
-
-    private static boolean isYandexTransport(String type) {
-        return "vyandex".equals(type) || "yandex".equals(type) || "boards".equals(type);
     }
 
     private String appFilterSummary() {

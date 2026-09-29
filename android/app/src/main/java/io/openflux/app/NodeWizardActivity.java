@@ -1054,7 +1054,7 @@ public final class NodeWizardActivity extends Activity {
             if (withYandex) transports.put(new JSONObject().put("type", "vyandex").put("url", yandex));
             if (withMailru) transports.put(new JSONObject().put("type", "mailru").put("url", mailru));
             if (withCups) transports.put(new JSONObject().put("type", "cupsonline").put("url", rooms));
-            JSONObject answer = response(Mobile.nodePlan(channelId, 0, transports.toString(), false, autoUpdate));
+            JSONObject answer = response(Mobile.nodePlan(channelId, 0, transports.toString(), autoUpdate));
             answer.put("cupsRooms", rooms);
             if (ok(answer)) answer.put("transportsJson", transports.toString());
             return answer;
@@ -1108,7 +1108,7 @@ public final class NodeWizardActivity extends Activity {
         if (!persistProfile(false)) return;
         String sudo = sudoInput.getText().toString();
         runJob("Установка канала на сервере…", () -> response(Mobile.nodeApply(
-                channelId, transportsJson, channelKey, channelPort, selectedAutoUpdate, sudo, "")), answer -> {
+                channelId, transportsJson, channelKey, channelPort, selectedAutoUpdate, sudo)), answer -> {
             if (!ok(answer)) {
                 showProblem("Установка не подтверждена", answer.optString("error", "Неизвестная ошибка")
                         + "\n\nЧерновик профиля сохранён. Проверьте сервер перед повторной попыткой.");
