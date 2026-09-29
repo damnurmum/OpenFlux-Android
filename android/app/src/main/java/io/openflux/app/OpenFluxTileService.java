@@ -129,7 +129,7 @@ public final class OpenFluxTileService extends TileService {
             Intent intent = new Intent(this, OpenFluxTunnelService.class);
             intent.setAction(OpenFluxTunnelService.ACTION_START);
             selected.putConnectionExtras(intent);
-            intent.putExtra(OpenFluxTunnelService.EXTRA_DNS_SERVER, prefs.getString("dns_server", "1.1.1.1"));
+            intent.putExtra(OpenFluxTunnelService.EXTRA_DNS_SERVER, prefs.getString("dns_server", ""));
             intent.putExtra(OpenFluxTunnelService.EXTRA_MTU, prefs.getInt("mtu", 1400));
             startForegroundService(intent);
         }

@@ -7,9 +7,6 @@ import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.net.ConnectivityManager;
-import android.net.LinkProperties;
-import android.net.Network;
 import android.net.VpnService;
 import android.os.Handler;
 import android.os.Looper;
@@ -19,11 +16,6 @@ import android.os.SystemClock;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.Inet4Address;
-import java.net.InetAddress;
-import java.net.SocketTimeoutException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Locale;
@@ -59,7 +51,7 @@ public final class OpenFluxTunnelService extends VpnService {
     // service keeps running, and the uptime shown on Home must survive that.
     private static volatile long connectedAtMillis;
 
-    private final ExecutorService workers = Executors.newCachedThreadPool();
+    private final ExecutorService workers = Executors.newFixedThreadPool(3);
     private final Object outputLock = new Object();
     private final AtomicInteger generation = new AtomicInteger();
     private final AtomicBoolean awaitingCaptcha = new AtomicBoolean();
@@ -242,7 +234,13 @@ public final class OpenFluxTunnelService extends VpnService {
         final String maxToken = maxTokenExtra == null ? "" : maxTokenExtra;
         String maxUidExtra = intent.getStringExtra(EXTRA_MAX_UID);
         final String maxUid = maxUidExtra == null ? "" : maxUidExtra;
-        if (dnsServer == null) dnsServer = "";
+        String selectedDns = DnsServer.effective(dnsServer);
+        if (selectedDns == null) {
+            lastError = "DNS-сервер должен быть IPv4-адресом";
+            status = "Ошибка";
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         int mtu = Math.max(576, Math.min(1500, intent.getIntExtra(EXTRA_MTU, 1400)));
 
         active = true;
@@ -250,31 +248,10 @@ public final class OpenFluxTunnelService extends VpnService {
         status = "Подключение…";
         lastError = "";
         int session = generation.incrementAndGet();
-        String selectedDns = dnsServer;
         int selectedMtu = mtu;
         String finalUrl = url;
         workers.execute(() -> startTunnel(transportType, finalUrl, encryptionSecret, codec, maxToken, maxUid, selectedDns, selectedMtu, session));
         return START_STICKY;
-    }
-
-    // Reads the DNS server the underlying network (Wi-Fi/mobile) was already
-    // using, before this VpnService takes over the default route. Called
-    // from startTunnel() prior to builder.establish(), so "active network"
-    // here still means the real network, not our own VPN.
-    private String autoDetectDns() {
-        try {
-            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-            Network network = cm.getActiveNetwork();
-            LinkProperties props = network == null ? null : cm.getLinkProperties(network);
-            if (props != null) {
-                for (InetAddress address : props.getDnsServers()) {
-                    if (address instanceof Inet4Address) return address.getHostAddress();
-                }
-            }
-        } catch (Exception ignored) {
-            // Fall through to the default below.
-        }
-        return "1.1.1.1";
     }
 
     private String startCarrier(String transportType, String url, String encryptionSecret, String codec, String maxToken, String maxUid) {
@@ -320,27 +297,13 @@ public final class OpenFluxTunnelService extends VpnService {
             return;
         }
 
-        // Empty means "auto", same as the desktop CLI client which never sets
-        // a DNS server at all and just relies on the network's own resolver.
-        // A full-tunnel VpnService can't leave DNS unset the same way (apps
-        // would have no resolver once the default route points at us), so
-        // instead we look up the DNS server the underlying network was
-        // already using before we took over routing, and relay to that.
-        final String dnsServer = dnsServerParam.trim().isEmpty() ? autoDetectDns() : dnsServerParam;
-
         try {
-            // Builder.addDnsServer() only accepts a numeric IP - it throws
-            // IllegalArgumentException on a hostname like "dns.google", even
-            // though queryLocalDns() below resolves hostnames just fine. This
-            // is running on a background worker thread, so a blocking lookup
-            // here is fine.
-            String dnsServerIp = InetAddress.getByName(dnsServer).getHostAddress();
             Builder builder = new Builder()
                     .setSession("OpenFlux")
                     .setMtu(mtu)
                     .addAddress("10.10.10.2", 24)
                     .addRoute("0.0.0.0", 0)
-                    .addDnsServer(dnsServerIp);
+                    .addDnsServer(dnsServerParam);
             applyAppFilter(builder);
             ParcelFileDescriptor established = builder.establish();
             if (established == null) throw new IOException("Android не создал TUN-интерфейс");
@@ -364,7 +327,7 @@ public final class OpenFluxTunnelService extends VpnService {
         startSpeedUpdates();
         FileInputStream input = tunnelInput;
         FileOutputStream output = tunnelOutput;
-        workers.execute(() -> readOutgoingPackets(session, input, dnsServer));
+        workers.execute(() -> readOutgoingPackets(session, input));
         workers.execute(() -> writeIncomingPackets(session, output));
     }
 
@@ -411,16 +374,14 @@ public final class OpenFluxTunnelService extends VpnService {
         }
     }
 
-    private void readOutgoingPackets(int session, FileInputStream input, String dnsServer) {
+    private void readOutgoingPackets(int session, FileInputStream input) {
         byte[] buffer = new byte[32767];
         try {
             while (isCurrent(session)) {
                 int length = input.read(buffer);
                 if (length <= 0) continue;
                 byte[] packet = Arrays.copyOf(buffer, length);
-                if (isIpv4UdpDns(packet)) {
-                    workers.execute(() -> forwardDns(session, outputFor(session), packet, dnsServer));
-                } else if (isIpv4Tcp(packet) || isIpv4Udp(packet)) {
+                if (isIpv4Tcp(packet) || isIpv4Udp(packet)) {
                     String error = Mobile.send(packet);
                     if (error != null && !error.isEmpty() && isCurrent(session)) {
                         lastError = "Отправка пакета: " + error;
@@ -452,51 +413,11 @@ public final class OpenFluxTunnelService extends VpnService {
         }
     }
 
-    // forwardDns answers the captured query by relaying it to dnsServer over
-    // plain UDP directly from this device.
-    private void forwardDns(int session, FileOutputStream output, byte[] request, String dnsServer) {
-        int ipHeader = (request[0] & 0x0f) * 4;
-        int dnsOffset = ipHeader + 8;
-        int udpLength = unsignedShort(request, ipHeader + 4);
-        if (dnsOffset > request.length || udpLength < 8 || ipHeader + udpLength > request.length) return;
-
-        byte[] query = Arrays.copyOfRange(request, dnsOffset, ipHeader + udpLength);
-        try {
-            byte[] answer = queryLocalDns(query, dnsServer);
-            if (answer == null || answer.length == 0) {
-                if (isCurrent(session)) lastError = "DNS: сервер не ответил";
-                return;
-            }
-            inject(session, output, buildDnsResponse(request, answer));
-        } catch (IOException exception) {
-            if (isCurrent(session)) lastError = "DNS: " + exception.getMessage();
-        }
-    }
-
-    // queryLocalDns relays the raw DNS message to dnsServer over plain UDP.
-    private byte[] queryLocalDns(byte[] query, String dnsServer) throws IOException {
-        try (DatagramSocket socket = new DatagramSocket()) {
-            socket.setSoTimeout(5000);
-            InetAddress address = InetAddress.getByName(dnsServer);
-            socket.send(new DatagramPacket(query, query.length, address, 53));
-            byte[] buffer = new byte[4096];
-            DatagramPacket response = new DatagramPacket(buffer, buffer.length);
-            socket.receive(response);
-            return Arrays.copyOf(buffer, response.getLength());
-        } catch (SocketTimeoutException timeout) {
-            return null;
-        }
-    }
-
     private void inject(int session, FileOutputStream output, byte[] packet) throws IOException {
         if (!isCurrent(session) || output == null || packet == null) return;
         synchronized (outputLock) {
             if (isCurrent(session)) output.write(packet);
         }
-    }
-
-    private FileOutputStream outputFor(int session) {
-        return isCurrent(session) ? tunnelOutput : null;
     }
 
     private boolean isCurrent(int session) {
@@ -527,62 +448,9 @@ public final class OpenFluxTunnelService extends VpnService {
         return packet.length >= 20 && (packet[0] >>> 4) == 4 && (packet[9] & 0xff) == 6;
     }
 
-    // Non-DNS UDP (isIpv4UdpDns handles port 53 separately, resolved locally
-    // instead of round-tripping through the tunnel). The exit node forwards
-    // this like any other IPv4 packet; an older exit node without UDP NAT
-    // support (see tunnel/l3/udp_nat.go) just drops it, same as today.
+    // DNS and other IPv4 UDP take the same transport path to the exit node.
     private static boolean isIpv4Udp(byte[] packet) {
-        return packet.length >= 20 && (packet[0] >>> 4) == 4 && (packet[9] & 0xff) == 17
-                && !isIpv4UdpDns(packet);
-    }
-
-    private static boolean isIpv4UdpDns(byte[] packet) {
-        if (packet.length < 28 || (packet[0] >>> 4) != 4 || (packet[9] & 0xff) != 17) return false;
-        int header = (packet[0] & 0x0f) * 4;
-        return header >= 20 && packet.length >= header + 8 && unsignedShort(packet, header + 2) == 53;
-    }
-
-    private static byte[] buildDnsResponse(byte[] request, byte[] dns) {
-        int requestHeader = (request[0] & 0x0f) * 4;
-        byte[] response = new byte[20 + 8 + dns.length];
-        response[0] = 0x45;
-        response[1] = request[1];
-        putShort(response, 2, response.length);
-        response[4] = request[4];
-        response[5] = request[5];
-        response[8] = 64;
-        response[9] = 17;
-        System.arraycopy(request, 16, response, 12, 4);
-        System.arraycopy(request, 12, response, 16, 4);
-        putShort(response, 10, checksum(response, 0, 20));
-
-        putShort(response, 20, 53);
-        putShort(response, 22, unsignedShort(request, requestHeader));
-        putShort(response, 24, 8 + dns.length);
-        // A zero UDP checksum is valid for IPv4.
-        putShort(response, 26, 0);
-        System.arraycopy(dns, 0, response, 28, dns.length);
-        return response;
-    }
-
-    private static int checksum(byte[] bytes, int offset, int length) {
-        long sum = 0;
-        for (int i = offset; i < offset + length; i += 2) {
-            int high = bytes[i] & 0xff;
-            int low = i + 1 < offset + length ? bytes[i + 1] & 0xff : 0;
-            sum += (high << 8) | low;
-            while ((sum & 0xffff0000L) != 0) sum = (sum & 0xffffL) + (sum >>> 16);
-        }
-        return (int) (~sum) & 0xffff;
-    }
-
-    private static int unsignedShort(byte[] bytes, int offset) {
-        return ((bytes[offset] & 0xff) << 8) | (bytes[offset + 1] & 0xff);
-    }
-
-    private static void putShort(byte[] bytes, int offset, int value) {
-        bytes[offset] = (byte) (value >>> 8);
-        bytes[offset + 1] = (byte) value;
+        return packet.length >= 20 && (packet[0] >>> 4) == 4 && (packet[9] & 0xff) == 17;
     }
 
     private synchronized void fail(int session, String message) {

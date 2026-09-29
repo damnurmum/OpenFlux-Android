@@ -216,7 +216,9 @@ The server side is done. Now let's set up the phone.
      picked one yet, tap **"Generate secure key"**, copy the value, and paste
      it into the `encryption-key` file on the server (Step 3.2).
 5. You can leave **Network** (DNS server, MTU) alone - the defaults work for
-   most setups.
+   most setups. The default DNS uses `1.1.1.1` through the exit node, which must
+   support UDP. A custom DNS server must be a numeric IPv4 address reachable
+   from the exit node.
 6. Go back to the **Home** tab and tap **"Start Tunnel"**. Android will show
    its standard system prompt to set up a VPN connection - confirm it (this is a
    generic Android dialog, not something specific to OpenFlux).

@@ -2,7 +2,7 @@
 
 The Android app uses the system `VpnService` API and provides connection,
 logging and settings tabs. Its document URL and shared encryption secret are
-entered by the user; no server address, document URL or secret is embedded in
+entered by the user; no exit-node address, document URL or secret is embedded in
 the source code or APK.
 
 ## Runtime behavior
@@ -12,19 +12,21 @@ the source code or APK.
 - two connection modes: system-wide tunnel (`VpnService`), or a local SOCKS5
   proxy that other apps can be pointed at manually, optionally exposed to the
   local network with authentication;
-- IPv4/TCP traffic is forwarded through OpenFlux and the exit node;
-- the DNS-server field accepts any IP address or hostname (not a fixed
-  provider list), resolved locally on the device;
+- IPv4/TCP and UDP traffic, including DNS over UDP/53, is forwarded through
+  OpenFlux and the exit node;
+- the DNS-server field accepts a numeric IPv4 address reachable from the exit
+  node; the default is `1.1.1.1`, rather than the phone's local network resolver;
 - the foreground service keeps the tunnel alive while the screen is off, and
   shows live upload/download speed in its notification;
 - the URL and secret are encrypted using an Android Keystore-backed key;
 - settings remain after an in-place update signed by the same certificate;
 - clearing app data or uninstalling the app removes the saved settings.
 
-The current app does not tunnel arbitrary UDP or IPv6 (in either mode, an
-IPv6 target or a non-CONNECT SOCKS5 command is rejected with a proper
-protocol error rather than a silent hang). It is experimental and has not
-received an independent security audit.
+The current app does not tunnel IPv6. UDP, including DNS, needs an exit node
+with UDP support; an older exit node may drop it. Custom DNS hostnames are not
+accepted because resolving one before the VPN starts would expose that lookup
+on the phone's local network. It is experimental and has not received an
+independent security audit.
 
 ## Build
 

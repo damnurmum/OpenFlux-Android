@@ -1290,14 +1290,13 @@ public final class MainActivity extends Activity {
         if (MODE_PROXY.equals(connectionMode)) {
             return new String[][]{
                     {"Режим", "Прокси (SOCKS5)"},
-                    {"DNS-сервер", dnsServer.isEmpty() ? "Авто" : dnsServer},
                     {"Локальный порт", String.valueOf(proxyPort)},
                     {"Доступ", proxyAccessSummary()},
             };
         }
         return new String[][]{
                 {"Режим", "Туннель (весь трафик)"},
-                {"DNS-сервер", dnsServer.isEmpty() ? "Авто" : dnsServer},
+                {"DNS-сервер", dnsServer.isEmpty() ? "По умолчанию (" + DnsServer.DEFAULT + ")" : dnsServer},
                 {"MTU пакета", String.valueOf(mtu)},
                 {"Приложения", appFilterSummary()},
         };
@@ -1408,11 +1407,17 @@ public final class MainActivity extends Activity {
 
         if (showSave) {
             Button save = primaryButton("Сохранить настройки", () -> {
-                if (settingsSubTab == SETTINGS_NETWORK) applyNetworkSettings();
-                else if (settingsSubTab == SETTINGS_MODE) applyModeSettings();
+                if (settingsSubTab == SETTINGS_NETWORK) {
+                    if (!applyNetworkSettings()) return;
+                } else if (settingsSubTab == SETTINGS_MODE) applyModeSettings();
                 else if (settingsSubTab == SETTINGS_INTERFACE) applyInterfaceSettings();
-                else if (settingsSubTab == SETTINGS_APPS) applyAppsSettings();
-                else if (settingsSubTab == SETTINGS_ROUTING) applyRoutingSettings();
+                else if (settingsSubTab == SETTINGS_APPS) {
+                    if (AppFilter.MODE_WHITELIST.equals(editorAppFilterMode) && editorSelectedApps.isEmpty()) {
+                        Toast.makeText(this, "Выберите хотя бы одно приложение для белого списка", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    applyAppsSettings();
+                } else if (settingsSubTab == SETTINGS_ROUTING) applyRoutingSettings();
                 Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show();
             });
             LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(52));
@@ -2529,8 +2534,8 @@ public final class MainActivity extends Activity {
     private View buildNetworkSettings() {
         LinearLayout section = page();
 
-        Switch dnsAutoSwitch = settingSwitch(R.drawable.ic_public, "DNS-сервер: Авто",
-                "Тот же DNS, что использовала сеть до подключения туннеля - как у desktop-клиента",
+        Switch dnsAutoSwitch = settingSwitch(R.drawable.ic_public, "DNS-сервер: по умолчанию",
+                "1.1.1.1 через выходную ноду; DNS-запросы в VPN идут через туннель",
                 editorDnsAuto);
         View dnsAutoRow = (View) dnsAutoSwitch.getTag();
         section.addView(dnsAutoRow, matchWrap());
@@ -2543,8 +2548,8 @@ public final class MainActivity extends Activity {
         dnsInputParams.topMargin = dp(8);
         section.addView(dnsInputRow, dnsInputParams);
         View dnsHint = fieldHint(
-                "Сюда уходят запросы «какой IP у сайта», резолвится локально на устройстве. "
-                        + "Можно указать IP (1.1.1.1) или домен (dns.google).");
+                "Укажите IPv4-адрес DNS-сервера, доступного с выходной ноды. "
+                        + "Имена вроде dns.google здесь не поддерживаются: их пришлось бы разрешать до запуска VPN.");
         setInitialVisibility(dnsHint, !editorDnsAuto);
         section.addView(dnsHint);
 
@@ -2585,8 +2590,13 @@ public final class MainActivity extends Activity {
     // Commits the Network draft fields to the live settings. Called by the
     // generic "Сохранить настройки" button in buildSettingsPage() - editing
     // these fields and pressing back without it discards the draft.
-    private void applyNetworkSettings() {
-        dnsServer = editorDnsAuto ? "" : dnsInput.getText().toString().trim();
+    private boolean applyNetworkSettings() {
+        String selectedDns = editorDnsAuto ? "" : DnsServer.normalizeIpv4(dnsInput.getText().toString());
+        if (selectedDns == null) {
+            Toast.makeText(this, "Укажите IPv4-адрес DNS-сервера, например 1.1.1.1", Toast.LENGTH_LONG).show();
+            return false;
+        }
+        dnsServer = selectedDns;
         int newMtu;
         try {
             newMtu = Integer.parseInt(mtuInput.getText().toString().trim());
@@ -2596,6 +2606,7 @@ public final class MainActivity extends Activity {
         mtu = Math.max(576, Math.min(1500, newMtu));
         killSwitchEnabled = editorKillSwitchEnabled;
         persistSettings();
+        return true;
     }
 
     private void applyInterfaceSettings() {

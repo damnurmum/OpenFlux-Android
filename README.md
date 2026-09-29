@@ -58,7 +58,8 @@ Android tunnel or SOCKS5 client -> encrypted document transport -> Linux exit no
   leave the key empty to connect unencrypted to a plain exit node;
 - Android Keystore-backed storage for the document URL and shared secret;
 - DNS-server and MTU fields, applied only when explicitly saved - navigating
-  away without saving discards the edit;
+  away without saving discards the edit; VPN DNS over UDP/53 goes through the
+  exit node, with `1.1.1.1` as the default resolver;
 - per-app tunnel routing (whitelist or blacklist which apps use it);
 - a pinned notification with live upload/download speed and a disconnect
   action, for both connection modes;
@@ -74,9 +75,10 @@ Android tunnel or SOCKS5 client -> encrypted document transport -> Linux exit no
 ## Important limitations
 
 OpenFlux is experimental research software, not an audited replacement for
-WireGuard or another mature VPN. The Android tunnel currently supports IPv4 and
-TCP; arbitrary UDP and IPv6 are not tunneled (an IPv6 target or a UDP-only
-request is rejected with a proper protocol error, not tunneled silently). The
+WireGuard or another mature VPN. The Android tunnel supports IPv4 TCP and UDP,
+including DNS over UDP/53 when the exit node supports UDP. IPv6 is not tunneled.
+Custom DNS servers must be numeric IPv4 addresses reachable from the exit node;
+older exits without UDP support cannot resolve DNS through the tunnel. The
 document provider can still observe metadata such as connection times, traffic
 sizes and encrypted payloads. Anyone with document edit access can disrupt the
 connection.

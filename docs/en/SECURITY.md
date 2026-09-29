@@ -21,7 +21,7 @@ containing credentials, or private APK signing keys in reports.
   they cannot decrypt or forge traffic.
 - Android protects the saved URL and shared secret with Android Keystore. They
   are removed when the app data is cleared or the app is uninstalled.
-- The current Android client is an experimental IPv4/TCP implementation. It
+- The current Android client is an experimental IPv4 TCP/UDP implementation. It
   must not be treated as an audited replacement for WireGuard or another
   mature VPN.
 
