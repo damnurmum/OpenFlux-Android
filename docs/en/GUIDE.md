@@ -95,17 +95,18 @@ Check your server's CPU architecture:
 uname -m
 ```
 
-- `x86_64` → get `OpenFlux-linux-amd64` (the most common case);
-- `aarch64` or `arm64` → get `OpenFlux-linux-arm64` (ARM servers, common on
+- `x86_64` → get `openflux-linux-amd64` (the most common case);
+- `aarch64` or `arm64` → get `openflux-linux-arm64` (ARM servers, common on
   some cloud providers' ARM instance types).
 
-Download it and make it executable (example for amd64 - swap the filename
-for `OpenFlux-linux-arm64` if you're on ARM):
+Download it from the [latest upstream release](https://github.com/p1neappleXpress/OpenFlux/releases/latest)
+and make it executable (example for amd64 - swap the filename for
+`openflux-linux-arm64` if you're on ARM):
 
 ```bash
 mkdir -p /root/openflux && cd /root/openflux
-curl -LO https://github.com/damnurmum/OpenFlux-Android/releases/latest/download/OpenFlux-linux-amd64
-mv OpenFlux-linux-amd64 openflux
+curl -LO https://github.com/p1neappleXpress/OpenFlux/releases/latest/download/openflux-linux-amd64
+mv openflux-linux-amd64 openflux
 chmod +x openflux
 ```
 

@@ -122,9 +122,8 @@ chmod 600 document-url encryption-key
 
 Выходная нода и десктопный клиент - один и тот же бинарник, различаются
 только флаги. Готовые бинарники под Linux `amd64`/`arm64` (плюс сборки под
-macOS и Windows) прикреплены к каждому
-[GitHub-релизу](https://github.com/damnurmum/OpenFlux-Android/releases/latest)
-рядом с Android APK. Ядро это репозиторий апстрима
+macOS и Windows) доступны в [последнем релизе апстрима](https://github.com/p1neappleXpress/OpenFlux/releases/latest).
+Релизы этого репозитория содержат Android APK. Ядро это репозиторий апстрима
 [OpenFlux](https://github.com/p1neappleXpress/OpenFlux), подключённый здесь
 сабмодулем `core/`. Чтобы собрать самостоятельно:
 

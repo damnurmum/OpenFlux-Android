@@ -31,21 +31,6 @@ jobs:
           go-version-file: core/go.mod
           cache-dependency-path: core/mobile/go.sum
 
-      - name: Build cross-platform binaries
-        # The core is the upstream repository, checked out as core/.
-        working-directory: core
-        run: |
-          mkdir -p ../dist
-          build() { GOOS=$1 GOARCH=$2 CGO_ENABLED=0 go build -o "../dist/openflux-$1-$2$3" .; }
-          build darwin  amd64 ""
-          build darwin  arm64 ""
-          build linux   amd64 ""
-          build linux   arm   ""
-          build linux   arm64 ""
-          build windows 386   ".exe"
-          build windows amd64 ".exe"
-          build windows arm64 ".exe"
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -93,7 +78,7 @@ jobs:
         run: for apk in dist/OpenFlux-android-*-release.apk; do "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"; done
 
       - name: Generate checksums
-        run: cd dist && sha256sum OpenFlux-android-*-release.apk openflux-* > SHA256SUMS
+        run: cd dist && sha256sum OpenFlux-android-*-release.apk > SHA256SUMS
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -101,7 +86,6 @@ jobs:
           name: OpenFlux-${{ env.RELEASE_TAG }}
           path: |
             dist/OpenFlux-android-*-release.apk
-            dist/openflux-*
             dist/SHA256SUMS
           if-no-files-found: error
           retention-days: 90
@@ -113,25 +97,34 @@ jobs:
           # A hand-written description in .github/release-notes/<tag>.md wins
           # over the generic one below.
           notes=".github/release-notes/$RELEASE_TAG.md"
+          upstream_url="https://github.com/p1neappleXpress/OpenFlux/releases/latest"
           if [ -f "$notes" ]; then
+            {
+              cat "$notes"
+              if ! grep -Fq "$upstream_url" "$notes"; then
+                printf '\n## Бинарники выходной ноды / Exit-node binaries\n\n'
+                printf 'Последние сборки CLI и выходной ноды: [релизы апстрима](%s).\n\n' "$upstream_url"
+                printf 'Latest CLI and exit-node binaries: [upstream releases](%s).\n' "$upstream_url"
+              fi
+            } > "$RUNNER_TEMP/openflux-release-notes.md"
             gh release create "$RELEASE_TAG" \
               dist/OpenFlux-android-*-release.apk \
-              dist/openflux-* \
               dist/SHA256SUMS \
               --verify-tag \
               --title "OpenFlux Android $RELEASE_TAG" \
-              --notes-file "$notes"
+              --notes-file "$RUNNER_TEMP/openflux-release-notes.md"
             exit 0
           fi
           gh release create "$RELEASE_TAG" \
             dist/OpenFlux-android-*-release.apk \
-            dist/openflux-* \
             dist/SHA256SUMS \
             --verify-tag \
             --generate-notes \
             --title "OpenFlux Android $RELEASE_TAG" \
             --notes "Experimental Android 8+ builds. Choose arm64-v8a for most modern phones, armeabi-v7a for older 32-bit ARM devices, x86/x86_64 for compatible emulators, or universal when unsure. If a debug build is installed, uninstall it once before installing this signed release; later release updates preserve app data.
 
-          Desktop CLI binaries for macOS (amd64, arm64), Linux (amd64, arm, arm64) and Windows (386, amd64, arm64) are included for exit-node deployment and desktop client use.
+          Последние сборки CLI и выходной ноды: $upstream_url.
+
+          Latest CLI and exit-node binaries: $upstream_url.
 
           Setup guide: https://github.com/damnurmum/OpenFlux-Android/blob/main/README.md (English) / https://github.com/damnurmum/OpenFlux-Android/blob/main/README.ru.md (Русский)."

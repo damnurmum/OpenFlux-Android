@@ -96,17 +96,18 @@ ssh root@ваш_ip_адрес
 uname -m
 ```
 
-- `x86_64` → берите `OpenFlux-linux-amd64` (самый частый случай);
-- `aarch64` или `arm64` → берите `OpenFlux-linux-arm64` (ARM-серверы, часто
+- `x86_64` → берите `openflux-linux-amd64` (самый частый случай);
+- `aarch64` или `arm64` → берите `openflux-linux-arm64` (ARM-серверы, часто
   встречаются у облачных провайдеров с ARM-инстансами).
 
-Скачайте и сделайте исполняемым (пример для amd64 - замените имя файла на
-`OpenFlux-linux-arm64`, если у вас ARM):
+Скачайте бинарник из [последнего релиза апстрима](https://github.com/p1neappleXpress/OpenFlux/releases/latest)
+и сделайте исполняемым (пример для amd64 - замените имя файла на
+`openflux-linux-arm64`, если у вас ARM):
 
 ```bash
 mkdir -p /root/openflux && cd /root/openflux
-curl -LO https://github.com/damnurmum/OpenFlux-Android/releases/latest/download/OpenFlux-linux-amd64
-mv OpenFlux-linux-amd64 openflux
+curl -LO https://github.com/p1neappleXpress/OpenFlux/releases/latest/download/openflux-linux-amd64
+mv openflux-linux-amd64 openflux
 chmod +x openflux
 ```
 

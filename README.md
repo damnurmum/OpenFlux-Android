@@ -118,8 +118,8 @@ either is exposed.
 
 The exit node and desktop client are the same binary; only the flags differ.
 Prebuilt Linux `amd64`/`arm64` binaries (plus macOS and Windows builds) are
-attached to every [GitHub Release](https://github.com/damnurmum/OpenFlux-Android/releases/latest)
-alongside the Android APKs. The core is the upstream
+available from the [latest upstream release](https://github.com/p1neappleXpress/OpenFlux/releases/latest).
+This repository's releases contain Android APKs. The core is the upstream
 [OpenFlux](https://github.com/p1neappleXpress/OpenFlux) repository, checked
 out here as the `core/` submodule. To build it yourself instead:
 
