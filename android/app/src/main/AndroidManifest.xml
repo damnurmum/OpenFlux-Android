@@ -56,6 +56,12 @@
             android:excludeFromRecents="true"
             android:launchMode="singleTask" />
 
+        <activity android:name=".ExitLoginActivity" android:exported="false" />
+        <activity
+            android:name=".NodeWizardActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <service
             android:name=".OpenFluxTunnelService"
             android:exported="false"

@@ -50,6 +50,11 @@ Android tunnel or SOCKS5 client -> encrypted document transport -> Linux exit no
   SOCKS5 authentication, plus a `socks://` share link and QR code;
 - profiles: save several exit-node configurations (transport, document URL,
   secret) and switch between them without re-typing anything;
+- a VPS node wizard under Profiles → +: SSH connection, Yandex Docs, Mail.ru Docs and
+  Cups.online transport choices (with Direct as backup), an installation plan,
+  channel verification and optional node auto-updates;
+- an option on Home to send a Yandex sign-in to the exit node over an active
+  Session;
 - five pluggable transports - Yandex.Docs, Yandex Volga, Mail.ru Docs,
   Cups.online and MAX/OneMe - plus a choice of wire codec (batched+zstd, the
   default, or legacy per-packet LZ4 for compatibility with older exit nodes);
@@ -85,6 +90,22 @@ connection.
 
 Use the software only on systems and networks you own or are authorized to
 test.
+
+### Create a node from the app
+
+Disconnect OpenFlux, open Profiles → + → Install node on VPS, and enter a Linux
+server address, SSH user, and password or private key. Compare the displayed
+SSH host-key fingerprint with the server, choose transports, and review the
+plan before installation. The app creates Cups.online rooms when selected.
+Auto-update is a server-wide setting shared by all its channels; the wizard
+shows its current state. Before installation the profile is saved as unverified
+until the connection check confirms the node works. The app does not save SSH
+passwords or private keys.
+
+For an active Session that uses a Yandex transport, Home offers a button to
+send a Yandex sign-in to the exit node. Sign in through the built-in browser,
+then send the cookies while the Session is connected.
+The QR button in Profiles can scan with the camera or read a photo from the gallery.
 
 ## Requirements
 

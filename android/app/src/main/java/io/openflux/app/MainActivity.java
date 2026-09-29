@@ -19,6 +19,7 @@ import android.content.pm.ResolveInfo;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
@@ -67,6 +68,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.Inet4Address;
 import java.net.HttpURLConnection;
@@ -89,8 +91,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.google.zxing.BarcodeFormat;
+import com.google.zxing.BinaryBitmap;
+import com.google.zxing.DecodeHintType;
+import com.google.zxing.MultiFormatReader;
+import com.google.zxing.RGBLuminanceSource;
 import com.google.zxing.WriterException;
 import com.google.zxing.common.BitMatrix;
+import com.google.zxing.common.HybridBinarizer;
 import com.google.zxing.qrcode.QRCodeWriter;
 import com.google.zxing.integration.android.IntentIntegrator;
 import com.google.zxing.integration.android.IntentResult;
@@ -109,21 +116,22 @@ public final class MainActivity extends Activity {
     static final String SETTINGS_PREFS_NAME = "openflux_settings";
     private static final int TUNNEL_PERMISSION_REQUEST = 42;
     private static final int NOTIFICATION_PERMISSION_REQUEST = 43;
+    private static final int NODE_WIZARD_REQUEST = 44;
+    private static final int QR_IMAGE_REQUEST = 45;
     private static final int DEFAULT_MTU = 1400;
     private static final int PAGE_HOME = 0;
     private static final int PAGE_PROFILES = 1;
     private static final int PAGE_LOGS = 2;
     private static final int PAGE_SETTINGS = 3;
+    private static final int LOG_FILTER_ALL = 0;
+    private static final int LOG_FILTER_IMPORTANT = 1;
+    private static final int LOG_FILTER_ERRORS = 2;
     private static final int SETTINGS_MODE = 0;
     private static final int SETTINGS_NETWORK = 1;
     private static final int SETTINGS_APPS = 2;
     private static final int SETTINGS_INTERFACE = 3;
     private static final int SETTINGS_ABOUT = 4;
     private static final int SETTINGS_ROUTING = 5;
-    private static final String[] PROFILE_ICON_KEYS = {
-            "ic_public", "ic_link", "ic_lock", "ic_key", "ic_power",
-            "ic_person", "ic_swap", "ic_terminal", "ic_apps", "ic_settings",
-    };
     private static final String MODE_TUNNEL = "tunnel";
     private static final String MODE_PROXY = "proxy";
     // The phone serves as an l4 exit node for other clients.
@@ -140,8 +148,6 @@ public final class MainActivity extends Activity {
     private boolean darkMode;
     private boolean urlVisible;
     private boolean autoScroll = true;
-    private boolean showSensitiveLogs = true;
-    private boolean joinCelebration;
     private int currentPage = PAGE_HOME;
     private int settingsSubTab = SETTINGS_MODE;
     private boolean settingsDetailOpen;
@@ -202,7 +208,6 @@ public final class MainActivity extends Activity {
     private String exitShareShown;
     private boolean profileEditorOpen;
     private Long editingProfileId;
-    private String editorIcon = "ic_public";
     private String editorTransportType = "yandex";
     private String editorCodec = "batched";
     private String editorMaxToken = "";
@@ -241,11 +246,10 @@ public final class MainActivity extends Activity {
     private boolean editorProxyAuthEnabled;
     private boolean editorDarkMode;
     private boolean editorAutoScroll;
-    private boolean editorShowSensitiveLogs;
-    private boolean editorJoinCelebration;
     private String editorAppFilterMode = AppFilter.MODE_OFF;
     private final LinkedHashSet<String> editorSelectedApps = new LinkedHashSet<>();
     private String logs = "";
+    private int logFilter = LOG_FILTER_ALL;
     private String lastShownError = "";
     private boolean encryptionVisible;
     private boolean proxyPasswordVisible;
@@ -289,7 +293,8 @@ public final class MainActivity extends Activity {
         secureSettings = new SecureSettings(this);
         // Older prototype builds used plain preferences. Remove those values:
         // connection credentials now live only in the Keystore-backed store.
-        prefs.edit().remove("document_url").remove("connection_document_url").apply();
+        prefs.edit().remove("document_url").remove("connection_document_url")
+                .remove("show_sensitive_logs").remove("join_celebration").apply();
         documentUrl = secureSettings.getString("document_url", "");
         encryptionSecret = secureSettings.getString("encryption_secret", "");
         profileStore = new ProfileStore(secureSettings);
@@ -308,8 +313,6 @@ public final class MainActivity extends Activity {
         proxyUsername = prefs.getString("proxy_username", "");
         proxyPassword = secureSettings.getString("proxy_password", "");
         autoScroll = prefs.getBoolean("auto_scroll", true);
-        showSensitiveLogs = prefs.getBoolean("show_sensitive_logs", true);
-        joinCelebration = prefs.getBoolean("join_celebration", false);
         darkMode = prefs.contains("dark_mode")
                 ? prefs.getBoolean("dark_mode", isSystemDark())
                 : isSystemDark();
@@ -349,6 +352,61 @@ public final class MainActivity extends Activity {
                 .setBeepEnabled(false)
                 .setOrientationLocked(false)
                 .initiateScan();
+    }
+
+    private void pickShareQrImage() {
+        Intent pick = new Intent(Intent.ACTION_GET_CONTENT);
+        pick.setType("image/*");
+        pick.addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(Intent.createChooser(pick, "Выберите фото с QR-кодом"), QR_IMAGE_REQUEST);
+    }
+
+    private void importQrImage(Uri uri) {
+        new Thread(() -> {
+            String result = null;
+            String error = null;
+            Bitmap bitmap = null;
+            try {
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                try (InputStream stream = getContentResolver().openInputStream(uri)) {
+                    if (stream == null) throw new IllegalArgumentException("Не удалось открыть фото");
+                    BitmapFactory.decodeStream(stream, null, bounds);
+                }
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                    throw new IllegalArgumentException("Файл не является изображением");
+                }
+                BitmapFactory.Options options = new BitmapFactory.Options();
+                options.inSampleSize = 1;
+                while (Math.max(bounds.outWidth / options.inSampleSize,
+                        bounds.outHeight / options.inSampleSize) > 2048) options.inSampleSize *= 2;
+                try (InputStream stream = getContentResolver().openInputStream(uri)) {
+                    if (stream == null) throw new IllegalArgumentException("Не удалось открыть фото");
+                    bitmap = BitmapFactory.decodeStream(stream, null, options);
+                }
+                if (bitmap == null) throw new IllegalArgumentException("Не удалось прочитать фото");
+                int width = bitmap.getWidth(), height = bitmap.getHeight();
+                int[] pixels = new int[width * height];
+                bitmap.getPixels(pixels, 0, width, 0, 0, width, height);
+                BinaryBitmap image = new BinaryBitmap(new HybridBinarizer(
+                        new RGBLuminanceSource(width, height, pixels)));
+                java.util.Map<DecodeHintType, Object> hints = new java.util.EnumMap<>(DecodeHintType.class);
+                hints.put(DecodeHintType.POSSIBLE_FORMATS,
+                        java.util.Collections.singletonList(BarcodeFormat.QR_CODE));
+                hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
+                result = new MultiFormatReader().decode(image, hints).getText();
+            } catch (Exception e) {
+                error = e instanceof com.google.zxing.NotFoundException
+                        ? "На фото нет QR-кода" : "Не удалось прочитать фото: " + e.getMessage();
+            } finally {
+                if (bitmap != null) bitmap.recycle();
+            }
+            String link = result, problem = error;
+            runOnUiThread(() -> {
+                if (link != null) importShareLink(link);
+                else Toast.makeText(this, problem, Toast.LENGTH_LONG).show();
+            });
+        }, "read-share-qr-image").start();
     }
 
     // Turns an openflux:// link into a profile after the user confirms: the
@@ -417,7 +475,6 @@ public final class MainActivity extends Activity {
 
     @Override protected void onStop() {
         handler.removeCallbacks(refresh);
-        captureLogs();
         super.onStop();
     }
 
@@ -819,8 +876,6 @@ public final class MainActivity extends Activity {
         } else if (tab == SETTINGS_INTERFACE) {
             editorDarkMode = darkMode;
             editorAutoScroll = autoScroll;
-            editorShowSensitiveLogs = showSensitiveLogs;
-            editorJoinCelebration = joinCelebration;
         } else if (tab == SETTINGS_APPS) {
             editorAppFilterMode = appFilterMode;
             editorSelectedApps.clear();
@@ -884,19 +939,26 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private int profileIconRes(String key) {
-        if (key == null) return R.drawable.ic_public;
-        switch (key) {
-            case "ic_link": return R.drawable.ic_link;
-            case "ic_lock": return R.drawable.ic_lock;
-            case "ic_key": return R.drawable.ic_key;
-            case "ic_power": return R.drawable.ic_power;
-            case "ic_person": return R.drawable.ic_person;
-            case "ic_swap": return R.drawable.ic_swap;
-            case "ic_terminal": return R.drawable.ic_terminal;
-            case "ic_apps": return R.drawable.ic_apps;
-            case "ic_settings": return R.drawable.ic_settings;
-            case "ic_public":
+    private int profileTransportIcon(Profile profile) {
+        if (profile == null) return R.drawable.ic_public;
+        String type = profile.transportType;
+        int priority = profile.priority;
+        if (profile.session) {
+            for (Profile.Transport transport : profile.extraTransports) {
+                if (transport.priority > priority) {
+                    type = transport.type;
+                    priority = transport.priority;
+                }
+            }
+        }
+        switch (type) {
+            case "yandex":
+            case "vyandex":
+            case "boards": return R.drawable.ic_yandex;
+            case "mailru": return R.drawable.ic_mailru;
+            case "cupsonline": return R.drawable.ic_code;
+            case "oneme": return R.drawable.ic_max;
+            case "direct": return R.drawable.ic_link;
             default: return R.drawable.ic_public;
         }
     }
@@ -925,7 +987,6 @@ public final class MainActivity extends Activity {
 
     private void openProfileEditor(Profile existing) {
         editingProfileId = existing != null ? existing.id : null;
-        editorIcon = existing != null ? existing.icon : "ic_public";
         editorTransportType = existing != null ? existing.transportType : "yandex";
         editorCodec = existing != null ? existing.codec : "batched";
         editorMaxToken = existing != null ? existing.maxToken : "";
@@ -985,7 +1046,6 @@ public final class MainActivity extends Activity {
             profiles.add(target);
         }
         target.name = name;
-        target.icon = editorIcon;
         target.transportType = editorTransportType;
         target.documentUrl = docUrl;
         target.encryptionSecret = secret;
@@ -1034,8 +1094,8 @@ public final class MainActivity extends Activity {
         }
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setBackground(rounded(surface, border, 1, 12));
         content.setPadding(dp(4), dp(4), dp(4), dp(4));
+        View selectedRow = null;
         for (Profile p : profiles) {
             boolean selected = p.id == selectedProfileId;
             LinearLayout row = new LinearLayout(this);
@@ -1043,8 +1103,11 @@ public final class MainActivity extends Activity {
             row.setPadding(dp(12), dp(10), dp(12), dp(10));
             row.setBackground(ripple(Color.TRANSPARENT, 8));
             row.setClickable(true);
-            row.addView(iconBubble(profileIconRes(p.icon)), new LinearLayout.LayoutParams(dp(34), dp(34)));
+            row.addView(iconBubble(profileTransportIcon(p), selected),
+                    new LinearLayout.LayoutParams(dp(34), dp(34)));
             TextView nameView = text(p.name, 14, text, selected);
+            nameView.setSingleLine(true);
+            nameView.setEllipsize(TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(0, -2, 1f);
             nameParams.leftMargin = dp(12);
             nameParams.rightMargin = dp(8);
@@ -1055,16 +1118,85 @@ public final class MainActivity extends Activity {
                 selectProfile(p.id);
                 if (profileDropdown != null) profileDropdown.dismiss();
             });
-            content.addView(row);
+            content.addView(row, new LinearLayout.LayoutParams(-1, dp(56)));
+            if (selected) selectedRow = row;
         }
-        PopupWindow popup = new PopupWindow(content, ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setVerticalScrollBarEnabled(true);
+        scroll.setBackground(rounded(surface, border, 1, 12));
+        scroll.setClipToOutline(true);
+        scroll.addView(content);
+        int popupWidth = anchor.getWidth();
+        content.measure(View.MeasureSpec.makeMeasureSpec(popupWidth, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int popupHeight = Math.min(content.getMeasuredHeight(), dp(176));
+        PopupWindow popup = new PopupWindow(scroll, popupWidth, popupHeight, true);
         popup.setElevation(dp(8));
         popup.setOutsideTouchable(true);
         popup.setFocusable(true);
         profileDropdown = popup;
         popup.setOnDismissListener(() -> profileDropdown = null);
         popup.showAsDropDown(anchor, 0, dp(4));
+        View focusRow = selectedRow;
+        if (focusRow != null) scroll.post(() -> scroll.scrollTo(0, Math.max(0, focusRow.getTop() - dp(16))));
+    }
+
+    private void showProfileActionMenu(View anchor) {
+        showActionMenu(anchor,
+                new String[]{"Добавить профиль", "Установить ноду на VPS"},
+                new String[]{"Настроить транспорт и подключение", "Создать канал на своём сервере"},
+                new int[]{R.drawable.ic_add, R.drawable.ic_terminal},
+                new Runnable[]{() -> openProfileEditor(null), this::openNodeWizard});
+    }
+
+    private void openNodeWizard() {
+        if (OpenFluxTunnelService.isRunning() || OpenFluxProxyService.isRunning()
+                || OpenFluxExitService.isRunning()) {
+            Toast.makeText(this, "Отключите OpenFlux перед настройкой ноды", Toast.LENGTH_LONG).show();
+            return;
+        }
+        startActivityForResult(new Intent(this, NodeWizardActivity.class), NODE_WIZARD_REQUEST);
+    }
+
+    private void showQrActionMenu(View anchor) {
+        showActionMenu(anchor,
+                new String[]{"Сканировать камерой", "Выбрать фото из галереи"},
+                new String[]{"Наведите камеру на QR-код", "Прочитать QR-код на снимке"},
+                new int[]{R.drawable.ic_qr_scan, R.drawable.ic_image},
+                new Runnable[]{this::scanShareQr, this::pickShareQrImage});
+    }
+
+    private void showActionMenu(View anchor, String[] titles, String[] details, int[] icons, Runnable[] actions) {
+        LinearLayout menu = new LinearLayout(this);
+        menu.setOrientation(LinearLayout.VERTICAL);
+        menu.setPadding(dp(5), dp(5), dp(5), dp(5));
+        menu.setBackground(rounded(surface, border, 1, 12));
+        PopupWindow popup = new PopupWindow(menu, dp(280), -2, true);
+        popup.setElevation(dp(8));
+        popup.setOutsideTouchable(true);
+        for (int i = 0; i < titles.length; i++) {
+            final int index = i;
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(10), dp(10), dp(10), dp(10));
+            row.setBackground(ripple(Color.TRANSPARENT, 8));
+            row.addView(iconBubble(icons[i]), new LinearLayout.LayoutParams(dp(38), dp(38)));
+            LinearLayout copy = new LinearLayout(this);
+            copy.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, -2, 1f);
+            copyParams.leftMargin = dp(12);
+            copy.addView(text(titles[i], 14, text, true));
+            copy.addView(text(details[i], 11, secondary, false));
+            row.addView(copy, copyParams);
+            row.setOnClickListener(v -> {
+                tap(v);
+                popup.dismiss();
+                actions[index].run();
+            });
+            menu.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+        popup.showAsDropDown(anchor, anchor.getWidth() - dp(280), dp(4));
     }
 
     private View buildProfileSelectorRow() {
@@ -1075,7 +1207,7 @@ public final class MainActivity extends Activity {
         row.setBackground(rounded(surface, border, 1, 11));
         row.setClickable(true);
         row.setFocusable(true);
-        row.addView(iconBubble(p != null ? profileIconRes(p.icon) : R.drawable.ic_public),
+        row.addView(iconBubble(profileTransportIcon(p)),
                 new LinearLayout.LayoutParams(dp(40), dp(40)));
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
@@ -1087,7 +1219,7 @@ public final class MainActivity extends Activity {
         row.addView(copy, copyParams);
         row.addView(icon(R.drawable.ic_chevron_right, hint), new LinearLayout.LayoutParams(dp(20), dp(20)));
         row.setOnClickListener(v -> {
-            bounce(v);
+            tap(v);
             if (profiles.isEmpty()) showPage(PAGE_PROFILES);
             else if (isConnectionRunning()) {
                 Toast.makeText(this, "Сначала отключитесь, затем меняйте профиль", Toast.LENGTH_SHORT).show();
@@ -1187,6 +1319,15 @@ public final class MainActivity extends Activity {
         activeParamsParams.bottomMargin = dp(8);
         page.addView(activeParams, activeParamsParams);
         staggerIn(activeParams, 130);
+
+        Profile profile = selectedProfile();
+        if (!MODE_EXIT.equals(connectionMode) && canOfferYandexLogin(profile)) {
+            Button sendLogin = primaryButton("Передать вход в Яндекс ноде",
+                    () -> startActivity(new Intent(this, ExitLoginActivity.class)));
+            LinearLayout.LayoutParams loginParams = new LinearLayout.LayoutParams(-1, dp(48));
+            loginParams.topMargin = dp(8);
+            page.addView(sendLogin, loginParams);
+        }
 
         exitShareCard = null;
         exitShareShown = null;
@@ -1309,6 +1450,21 @@ public final class MainActivity extends Activity {
         return address + (proxyAuthEnabled ? " (с паролем)" : " (без пароля)");
     }
 
+    private static boolean canOfferYandexLogin(Profile profile) {
+        // Cookie handoff is a Session feature. Check every selected Session
+        // carrier because Yandex can be an extra rather than the main one.
+        if (profile == null || !profile.session) return false;
+        if (isYandexTransport(profile.transportType)) return true;
+        for (Profile.Transport transport : profile.extraTransports) {
+            if (isYandexTransport(transport.type)) return true;
+        }
+        return false;
+    }
+
+    private static boolean isYandexTransport(String type) {
+        return "vyandex".equals(type) || "yandex".equals(type) || "boards".equals(type);
+    }
+
     private String appFilterSummary() {
         if (AppFilter.MODE_WHITELIST.equals(appFilterMode)) return "Белый список (" + selectedApps.size() + ")";
         if (AppFilter.MODE_BLACKLIST.equals(appFilterMode)) return "Чёрный список (" + selectedApps.size() + ")";
@@ -1354,7 +1510,7 @@ public final class MainActivity extends Activity {
         clear.setOnClickListener(v -> {
             tap(v);
             logs = "";
-            logView.setText("");
+            renderLogs();
         });
         header.addView(clear, new LinearLayout.LayoutParams(dp(48), dp(48)));
         page.addView(header);
@@ -1364,8 +1520,13 @@ public final class MainActivity extends Activity {
         noteParams.topMargin = dp(4);
         page.addView(note, noteParams);
 
-        logView = text(colorizeLogs(logs), 12, logColor, false);
+        LinearLayout.LayoutParams filterParams = matchWrap();
+        filterParams.topMargin = dp(16);
+        page.addView(buildLogFilters(), filterParams);
+
+        logView = text("", 13, logColor, false);
         logView.setTypeface(Typeface.MONOSPACE);
+        logView.setLineSpacing(dp(2), 1f);
         logView.setTextIsSelectable(true);
         logView.setPadding(dp(14), dp(12), dp(14), dp(12));
         logScroll = new ScrollView(this);
@@ -1380,7 +1541,42 @@ public final class MainActivity extends Activity {
         // above the pill, not extend behind it with scroll-padding tricks.
         logParams.bottomMargin = navClearance();
         page.addView(logScroll, logParams);
+        renderLogs();
         return page;
+    }
+
+    private View buildLogFilters() {
+        String[] labels = {"Все", "Важные", "Ошибки"};
+        LinearLayout bar = new LinearLayout(this);
+        bar.setPadding(dp(4), dp(4), dp(4), dp(4));
+        bar.setBackground(rounded(surface, border, 1, 14));
+        TextView[] segments = new TextView[labels.length];
+        Runnable paint = () -> {
+            for (int i = 0; i < segments.length; i++) {
+                boolean selected = logFilter == i;
+                segments[i].setBackground(selected
+                        ? rounded(tonal(0.18f), tonal(0.45f), 1, 11) : null);
+                segments[i].setTextColor(selected ? accent : secondary);
+                segments[i].setTypeface(selected ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
+                segments[i].setSelected(selected);
+            }
+        };
+        for (int i = 0; i < labels.length; i++) {
+            int filter = i;
+            TextView segment = text(labels[i], 13, secondary, false);
+            segment.setGravity(Gravity.CENTER);
+            segment.setOnClickListener(v -> {
+                if (logFilter == filter) return;
+                tap(v);
+                logFilter = filter;
+                paint.run();
+                renderLogs();
+            });
+            segments[i] = segment;
+            bar.addView(segment, new LinearLayout.LayoutParams(0, dp(42), 1f));
+        }
+        paint.run();
+        return bar;
     }
 
     private View buildSettingsPage() {
@@ -1490,7 +1686,7 @@ public final class MainActivity extends Activity {
         list.addView(settingsListRow(R.drawable.ic_routing, "Маршрутизация",
                 "Сайты и сервисы в обход туннеля", SETTINGS_ROUTING));
         list.addView(settingsListRow(R.drawable.ic_dark_mode, "Вид",
-                "Тема, логи и анимации", SETTINGS_INTERFACE));
+                "Тема и автопрокрутка логов", SETTINGS_INTERFACE));
         list.addView(settingsListRow(R.drawable.ic_info, "О проекте",
                 "Репозитории проекта", SETTINGS_ABOUT));
         groupTiles(list);
@@ -2023,10 +2219,10 @@ public final class MainActivity extends Activity {
         titles.addView(text("Профили", 25, text, true));
         titles.addView(text("Наборы параметров для разных серверов", 12, secondary, false), matchWrap());
         header.addView(titles, new LinearLayout.LayoutParams(0, -2, 1f));
-        ImageButton scanButton = iconButton(R.drawable.ic_qr_scan, "Сканировать QR");
+        ImageButton scanButton = iconButton(R.drawable.ic_qr_scan, "Загрузить QR-код");
         scanButton.setOnClickListener(v -> {
             tap(v);
-            scanShareQr();
+            showQrActionMenu(v);
         });
         LinearLayout.LayoutParams scanParams = new LinearLayout.LayoutParams(dp(44), dp(44));
         scanParams.rightMargin = dp(8);
@@ -2034,7 +2230,7 @@ public final class MainActivity extends Activity {
         ImageButton addButton = iconButton(R.drawable.ic_add, "Добавить профиль");
         addButton.setOnClickListener(v -> {
             tap(v);
-            openProfileEditor(null);
+            showProfileActionMenu(v);
         });
         header.addView(addButton, new LinearLayout.LayoutParams(dp(44), dp(44)));
         page.addView(header);
@@ -2068,7 +2264,8 @@ public final class MainActivity extends Activity {
         row.setBackground(ripple(Color.TRANSPARENT, 0));
         row.setClickable(true);
         row.setFocusable(true);
-        row.addView(iconBubble(profileIconRes(p.icon)), new LinearLayout.LayoutParams(dp(40), dp(40)));
+        row.addView(iconBubble(profileTransportIcon(p), selected),
+                new LinearLayout.LayoutParams(dp(40), dp(40)));
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, -2, 1f);
@@ -2129,13 +2326,6 @@ public final class MainActivity extends Activity {
         nameField.addView(profileNameInput, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(-1, dp(FIELD_HEIGHT));
         section.addView(floating(nameField, profileNameInput), nameParams);
-
-        TextView iconLabel = label("ЗНАЧОК");
-        LinearLayout.LayoutParams iconLabelParams = matchWrap();
-        iconLabelParams.topMargin = dp(18);
-        iconLabelParams.bottomMargin = dp(8);
-        section.addView(iconLabel, iconLabelParams);
-        section.addView(buildIconPicker(), matchWrap());
 
         TextView modeLabel = label("РЕЖИМ");
         LinearLayout.LayoutParams modeLabelParams = matchWrap();
@@ -2437,44 +2627,6 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private View buildIconPicker() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        View[] cells = new View[PROFILE_ICON_KEYS.length];
-        ImageView[] iconViews = new ImageView[PROFILE_ICON_KEYS.length];
-        for (int i = 0; i < PROFILE_ICON_KEYS.length; i++) {
-            FrameLayout cell = new FrameLayout(this);
-            ImageView iconView = icon(profileIconRes(PROFILE_ICON_KEYS[i]), secondary);
-            cells[i] = cell;
-            iconViews[i] = iconView;
-            cell.addView(iconView, new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER));
-            cell.setClickable(true);
-            LinearLayout.LayoutParams cellParams = new LinearLayout.LayoutParams(dp(42), dp(42));
-            cellParams.rightMargin = dp(8);
-            row.addView(cell, cellParams);
-        }
-        Runnable refreshCells = () -> {
-            for (int i = 0; i < PROFILE_ICON_KEYS.length; i++) {
-                boolean selected = PROFILE_ICON_KEYS[i].equals(editorIcon);
-                cells[i].setBackground(rounded(selected ? accent : surface, border, 1, 10));
-                iconViews[i].setImageTintList(ColorStateList.valueOf(selected ? Color.WHITE : secondary));
-            }
-        };
-        refreshCells.run();
-        for (int i = 0; i < PROFILE_ICON_KEYS.length; i++) {
-            String key = PROFILE_ICON_KEYS[i];
-            cells[i].setOnClickListener(v -> {
-                tap(v);
-                editorIcon = key;
-                refreshCells.run();
-            });
-        }
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
-        scroll.addView(row, new HorizontalScrollView.LayoutParams(-2, -2));
-        return scroll;
-    }
-
     private View buildTransportTypeSelector() {
         String[] types = {"yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme"};
         int current = Math.max(0, java.util.Arrays.asList(types).indexOf(editorTransportType));
@@ -2611,12 +2763,8 @@ public final class MainActivity extends Activity {
 
     private void applyInterfaceSettings() {
         autoScroll = editorAutoScroll;
-        showSensitiveLogs = editorShowSensitiveLogs;
-        joinCelebration = editorJoinCelebration;
         getSharedPreferences(SETTINGS_PREFS_NAME, MODE_PRIVATE).edit()
                 .putBoolean("auto_scroll", autoScroll)
-                .putBoolean("show_sensitive_logs", showSensitiveLogs)
-                .putBoolean("join_celebration", joinCelebration)
                 .apply();
         // Rebuilds the whole shell/page when the theme actually changed, so
         // it must run last - everything above needs to be committed first.
@@ -2745,24 +2893,6 @@ public final class MainActivity extends Activity {
             editorAutoScroll = checked;
         });
         group.addView((View) scrollSwitch.getTag(), matchWrap());
-
-        Switch showSensitiveSwitch = settingSwitch(R.drawable.ic_lock, "Данные в логах",
-                "Показывать ссылки, IP и WSS адреса. При выключении скрываются под HIDDEN-URL",
-                editorShowSensitiveLogs);
-        showSensitiveSwitch.setOnCheckedChangeListener((button, checked) -> {
-            tap(button);
-            editorShowSensitiveLogs = checked;
-        });
-        group.addView((View) showSensitiveSwitch.getTag(), matchWrap());
-
-        Switch celebrationSwitch = settingSwitch(R.drawable.ic_check, "Салют при подключении клиента",
-                "Режим выходной ноды: вспышка, конфетти и вибрация, когда к телефону подключается клиент",
-                editorJoinCelebration);
-        celebrationSwitch.setOnCheckedChangeListener((button, checked) -> {
-            tap(button);
-            editorJoinCelebration = checked;
-        });
-        group.addView((View) celebrationSwitch.getTag(), matchWrap());
         groupTiles(group);
         return section;
     }
@@ -2869,12 +2999,20 @@ public final class MainActivity extends Activity {
 
     // Icon on a tonal circle, as in the Android 15-16 settings lists.
     private View iconBubble(int iconRes) {
+        return iconBubble(iconRes, false);
+    }
+
+    private View iconBubble(int iconRes, boolean activeProfile) {
         FrameLayout bubble = new FrameLayout(this);
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
-        circle.setColor(tonal(0.2f));
+        circle.setColor(activeProfile ? (darkMode ? Color.rgb(29, 66, 49) : Color.rgb(222, 245, 229))
+                : tonal(0.2f));
         bubble.setBackground(circle);
-        bubble.addView(icon(iconRes, accent), new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER));
+        int iconSize = iconRes == R.drawable.ic_yandex ? 18 : 22;
+        bubble.addView(icon(iconRes, activeProfile
+                        ? (darkMode ? Color.rgb(112, 219, 147) : Color.rgb(31, 143, 70)) : accent),
+                new FrameLayout.LayoutParams(dp(iconSize), dp(iconSize), Gravity.CENTER));
         return bubble;
     }
 
@@ -3521,10 +3659,9 @@ public final class MainActivity extends Activity {
     // Called on every navigation (showPage), not just when leaving a settings
     // page with unsaved edits - so it must NOT commit the Network/Mode draft
     // fields (applyNetworkSettings/applyModeSettings do that, only when the
-    // save button is pressed). Just preserves the log scrollback text across
-    // the page rebuild and drops view references before they're rebuilt.
+    // save button is pressed). The log buffer is kept separately from the
+    // filtered view, so switching pages must not copy the visible text back.
     private void captureSettings() {
-        captureLogs();
         urlInput = null;
         encryptionInput = null;
         profileNameInput = null;
@@ -3535,10 +3672,6 @@ public final class MainActivity extends Activity {
         proxyPasswordInput = null;
         logView = null;
         logScroll = null;
-    }
-
-    private void captureLogs() {
-        if (logView != null) logs = logView.getText().toString();
     }
 
     private void persistSettings() {
@@ -3557,7 +3690,6 @@ public final class MainActivity extends Activity {
                 .putString("proxy_username", proxyUsername)
                 .putBoolean("auto_scroll", autoScroll)
                 .putBoolean("dark_mode", darkMode)
-                .putBoolean("show_sensitive_logs", showSensitiveLogs)
                 .commit();
     }
 
@@ -3650,6 +3782,21 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == QR_IMAGE_REQUEST) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                importQrImage(data.getData());
+            }
+            return;
+        }
+        if (requestCode == NODE_WIZARD_REQUEST) {
+            profiles = profileStore.load();
+            selectedProfileId = profileStore.getSelectedId();
+            applySelectedProfileToFields();
+            int page = data == null ? PAGE_PROFILES
+                    : data.getIntExtra(NodeWizardActivity.EXTRA_NAV_PAGE, PAGE_PROFILES);
+            showPage(page >= PAGE_HOME && page <= PAGE_SETTINGS ? page : PAGE_PROFILES);
+            return;
+        }
         IntentResult scan = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
         if (scan != null) {
             if (scan.getContents() != null) importShareLink(scan.getContents());
@@ -3726,8 +3873,7 @@ public final class MainActivity extends Activity {
         if (state != null && !state.equals(lastAnnouncedState)) {
             if ("Подключено".equals(state) && isExitMode() && lastAnnouncedState != null
                     && lastAnnouncedState.startsWith("Ожидание")) {
-                if (joinCelebration) JoinCelebrationView.play(root);
-                else vibrateSuccess();
+                vibrateSuccess();
                 appendLog("[SUCCESS] Клиент подключился к выходной ноде");
             } else if ("Подключено".equals(state)) {
                 vibrateSuccess();
@@ -3863,21 +4009,7 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private static final String HIDDEN_URL_LABEL = "HIDDEN-URL";
-    private static final Pattern SENSITIVE_URL_PATTERN = Pattern.compile("(?i)\\b(?:https?|wss?)://\\S+");
-    private static final Pattern SENSITIVE_IP_PATTERN = Pattern.compile("\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d{1,5})?\\b");
-    // Catches bare hostnames without a scheme (e.g. the "WebSocket connected
-    // to <host>" debug line, which logs transport.YandexDocsInfo.Host on its
-    // own, never as a full wss:// URL). Yandex's own internal hostnames use
-    // underscores in a label (e.g. "ota5..._vla_808_....sas.yp-c.yandex.net"),
-    // which isn't valid DNS but does show up in these logs, so labels allow
-    // '_' too - otherwise the match breaks there and only the tail after the
-    // last underscore gets hidden.
-    private static final Pattern SENSITIVE_HOST_PATTERN =
-            Pattern.compile("\\b(?:[a-zA-Z0-9_](?:[a-zA-Z0-9_-]*[a-zA-Z0-9_])?\\.)+[a-zA-Z]{2,}\\b");
-
     private void appendLog(String value) {
-        value = redactSensitive(value);
         String timestamp = "[" + new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US)
                 .format(new java.util.Date()) + "]";
         String[] incoming = value.split("\n", -1);
@@ -3890,48 +4022,124 @@ public final class MainActivity extends Activity {
         if (!logs.isEmpty()) logs += "\n";
         logs += value;
         if (logs.length() > 60000) logs = logs.substring(logs.length() - 40000);
-        if (logView != null) {
-            logView.setText(colorizeLogs(logs));
-            if (autoScroll && logScroll != null) logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
+        renderLogs();
+    }
+
+    private void renderLogs() {
+        if (logView == null) return;
+        String visible = filteredLogs();
+        logView.setTextColor(visible.isEmpty() ? secondary : logColor);
+        logView.setText(visible.isEmpty()
+                ? logFilter == LOG_FILTER_ERRORS ? "Ошибок пока нет."
+                : logFilter == LOG_FILTER_IMPORTANT ? "Важных событий пока нет."
+                : "Журнал пока пуст."
+                : colorizeLogs(visible));
+        if (autoScroll && logScroll != null) {
+            logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
         }
     }
 
-    // Document URLs are effectively passwords (docs/GUIDE*.md: "this link is
-    // equivalent to your tunnel password"), and the transport's own debug lines
-    // ([YDOCS]/[VOLGA]) print full URLs, WebSocket endpoints and resolved IPs
-    // verbatim for diagnostics. Opt-in (off by default, Settings -> "Вид")
-    // since it makes the log noisier and less useful for real debugging -
-    // strips anything URL- or IP-shaped before the line ever reaches the
-    // stored/displayed log text, so a screenshot or copy-paste can't leak it.
-    private String redactSensitive(String value) {
-        if (showSensitiveLogs) return value;
-        value = SENSITIVE_URL_PATTERN.matcher(value).replaceAll(HIDDEN_URL_LABEL);
-        value = SENSITIVE_IP_PATTERN.matcher(value).replaceAll(HIDDEN_URL_LABEL);
-        value = SENSITIVE_HOST_PATTERN.matcher(value).replaceAll(HIDDEN_URL_LABEL);
-        return value;
+    private String filteredLogs() {
+        if (logFilter == LOG_FILTER_ALL || logs.isEmpty()) return logs;
+        StringBuilder visible = new StringBuilder();
+        String previousTimestamp = null;
+        boolean previousIncluded = false;
+        for (String line : logs.split("\\n", -1)) {
+            Matcher timestamp = LOG_TIMESTAMP_PATTERN.matcher(line);
+            String currentTimestamp = timestamp.find() ? line.substring(0, timestamp.end()) : null;
+            Matcher tagMatch = LOG_TAG_PATTERN.matcher(line);
+            String tag = tagMatch.find() ? tagMatch.group(1) : null;
+            boolean sameEntry = tag == null && currentTimestamp != null
+                    && currentTimestamp.equals(previousTimestamp);
+            boolean include = sameEntry ? previousIncluded : logFilter == LOG_FILTER_ERRORS
+                    ? isErrorLogLine(tag, line) : isImportantLogLine(tag);
+            if (include && !line.isEmpty()) {
+                if (visible.length() > 0) visible.append('\n');
+                visible.append(line);
+            }
+            previousTimestamp = currentTimestamp;
+            previousIncluded = include;
+        }
+        return visible.toString();
     }
 
-    private static final Pattern LOG_TAG_PATTERN =
-            Pattern.compile("^(?:\\[\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\\] )?(\\[[A-Z0-9_]+\\])");
+    private boolean isErrorLogLine(String tag, String line) {
+        if ("[ERROR]".equals(tag) || "[PANIC]".equals(tag)) return true;
+        return ("[ANDROID]".equals(tag) || "[NODE]".equals(tag))
+                && ANDROID_LOG_ERROR_PATTERN.matcher(line).find();
+    }
 
-    // Colors the leading [TAG] of each log line so errors/successes/the
-    // Yandex Docs transport's own debug tag stand out at a glance instead of
-    // blending into a wall of monospace text.
+    private boolean isImportantLogLine(String tag) {
+        if (tag == null) return true;
+        switch (tag) {
+            case "[ANDROID]":
+            case "[NODE]":
+            case "[ERROR]":
+            case "[PANIC]":
+            case "[WARN]":
+            case "[WARNING]":
+            case "[SUCCESS]":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static final Pattern LOG_TIMESTAMP_PATTERN =
+            Pattern.compile("^\\[\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\\] ");
+    private static final Pattern LOG_TAG_PATTERN = Pattern.compile(
+            "^(?:\\[\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\\] )?(\\[[A-Z0-9_-]+\\])");
+    private static final Pattern ANDROID_LOG_ERROR_PATTERN = Pattern.compile(
+            "(?i)\\b(?:failed|error)\\b|ошибк|не удалось");
+
     private int logTagColor(String tag) {
         switch (tag) {
             case "[ERROR]":
             case "[PANIC]":
-                return darkMode ? Color.rgb(242, 139, 130) : Color.rgb(217, 48, 37);
+                return logErrorColor();
             case "[SUCCESS]":
-                return darkMode ? Color.rgb(129, 201, 149) : Color.rgb(24, 128, 56);
-            case "[YDOCS]":
-                return darkMode ? Color.rgb(253, 214, 99) : Color.rgb(249, 171, 0);
+                return logSuccessColor();
+            case "[WARN]":
+            case "[WARNING]":
+                return logWarningColor();
+            default:
+                return accent;
+        }
+    }
+
+    private int logErrorColor() {
+        return darkMode ? Color.rgb(255, 145, 145) : Color.rgb(180, 38, 45);
+    }
+
+    private int logSuccessColor() {
+        return darkMode ? Color.rgb(105, 211, 149) : Color.rgb(18, 122, 66);
+    }
+
+    private int logWarningColor() {
+        return darkMode ? Color.rgb(255, 202, 97) : Color.rgb(151, 86, 0);
+    }
+
+    private int logMessageColor(String tag, String message) {
+        switch (tag) {
+            case "[ERROR]":
+            case "[PANIC]":
+                return logErrorColor();
+            case "[SUCCESS]":
+                return logSuccessColor();
+            case "[WARN]":
+            case "[WARNING]":
+                return logWarningColor();
             case "[ANDROID]":
+                return ANDROID_LOG_ERROR_PATTERN.matcher(message).find() ? logErrorColor() : logColor;
+            case "[YDOCS]":
             case "[VOLGA]":
             case "[MAX]":
             case "[CUPS]":
             case "[M-DOCS]":
-                return accent;
+            case "[CRYPTO]":
+            case "[SESSION]":
+            case "[DEBUG]":
+                return darkMode ? Color.rgb(165, 174, 193) : Color.rgb(91, 100, 117);
             default:
                 return logColor;
         }
@@ -3944,18 +4152,20 @@ public final class MainActivity extends Activity {
             String line = lines[i];
             int start = builder.length();
             builder.append(line);
+            Matcher timestamp = LOG_TIMESTAMP_PATTERN.matcher(line);
+            if (timestamp.find()) {
+                builder.setSpan(new ForegroundColorSpan(secondary),
+                        start, start + timestamp.end(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
             Matcher matcher = LOG_TAG_PATTERN.matcher(line);
             if (matcher.find()) {
-                builder.setSpan(new ForegroundColorSpan(logTagColor(matcher.group(1))),
+                String tag = matcher.group(1);
+                builder.setSpan(new ForegroundColorSpan(logTagColor(tag)),
                         start + matcher.start(1), start + matcher.end(1), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            }
-            int hiddenColor = darkMode ? Color.rgb(242, 139, 130) : Color.rgb(217, 48, 37);
-            int searchFrom = 0;
-            int idx;
-            while ((idx = line.indexOf(HIDDEN_URL_LABEL, searchFrom)) >= 0) {
-                builder.setSpan(new ForegroundColorSpan(hiddenColor),
-                        start + idx, start + idx + HIDDEN_URL_LABEL.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-                searchFrom = idx + HIDDEN_URL_LABEL.length();
+                if (matcher.end() < line.length()) {
+                    builder.setSpan(new ForegroundColorSpan(logMessageColor(tag, line.substring(matcher.end()))),
+                            start + matcher.end(), start + line.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                }
             }
             if (i < lines.length - 1) builder.append("\n");
         }

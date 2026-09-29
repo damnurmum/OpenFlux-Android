@@ -69,11 +69,6 @@ All notable changes to this fork are documented here.
 - **colorized, timestamped logs**: each line gets a `[HH:mm:ss.SSS]`
   prefix; known tags are colored (`[ERROR]`/`[PANIC]` red, `[SUCCESS]`
   green, `[YDOCS]` yellow, `[ANDROID]`/`[VOLGA]`/`[MAX]` accent).
-- **"Данные в логах" setting** (Settings -> "Вид", on by default): turning
-  it off masks URLs, WebSocket endpoints, bare hostnames and IP addresses
-  in the log text with `HIDDEN-URL` before the line is ever stored, not
-  just visually - a screenshot or copy-paste of the Logs tab can't leak
-  them either.
 - exit node: a `--mode proxy|raw` flag selects the internet-facing path.
   `proxy` (new default) dials out with a plain `net.Dial`, needs no root
   and no RST-drop iptables rule, and works on any OS. `raw` keeps the

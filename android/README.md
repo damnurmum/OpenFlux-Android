@@ -19,6 +19,10 @@ the source code or APK.
 - the foreground service keeps the tunnel alive while the screen is off, and
   shows live upload/download speed in its notification;
 - the URL and secret are encrypted using an Android Keystore-backed key;
+- the Profiles + menu opens a VPS node wizard that installs a channel over SSH with selected transports and
+  optional auto-updates, then saves an unverified profile and checks the link;
+- a connected Session can send a Yandex WebView sign-in to its exit node;
+- the Profiles QR menu scans with the camera or reads a photo from the gallery;
 - settings remain after an in-place update signed by the same certificate;
 - clearing app data or uninstalling the app removes the saved settings.
 
