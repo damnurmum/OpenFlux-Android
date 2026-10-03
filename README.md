@@ -53,6 +53,10 @@ Android tunnel or SOCKS5 client -> encrypted document transport -> Linux exit no
 - a VPS node wizard under Profiles → +: SSH connection, Yandex Docs, Mail.ru Docs and
   Cups.online transport choices (with Direct as backup), an installation plan,
   channel verification and optional node auto-updates;
+- a serverless profile mode: the exit is a PHP node on ordinary web hosting
+  (upstream's `deploy/phpbox`), reached over one Cups.online room or Mail.ru
+  document, with no key and no Session; only TCP on ports 80 and 443 goes
+  through it, other UDP and IPv6 are dropped in the full tunnel;
 - five pluggable transports - Yandex.Docs, Yandex Volga, Mail.ru Docs,
   Cups.online and MAX/OneMe - plus a choice of wire codec (batched+zstd, the
   default, or legacy per-packet LZ4 for compatibility with older exit nodes);
