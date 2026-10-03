@@ -40,6 +40,7 @@ public final class OpenFluxTunnelService extends VpnService {
     public static final String EXTRA_MAX_TOKEN = "max_token";
     public static final String EXTRA_MAX_UID = "max_uid";
     public static final String EXTRA_SESSION_TRANSPORTS = "session_transports";
+    public static final String EXTRA_STREAM = "stream";
 
     private static final String CHANNEL_ID = "openflux_tunnel";
     private static final int NOTIFICATION_ID = 7;
@@ -58,6 +59,9 @@ public final class OpenFluxTunnelService extends VpnService {
     // Session mode (Mobile.startSession): the profile's transport list as
     // JSON, or empty for the classic single-transport mode.
     private volatile String sessionTransports = "";
+    // Stream mode (Mobile.startStreamPacket, the PHP exit): its transport
+    // type, or empty for the other modes.
+    private volatile String streamType = "";
     private volatile boolean active;
     private ParcelFileDescriptor tunnel;
     private FileInputStream tunnelInput;
@@ -91,8 +95,8 @@ public final class OpenFluxTunnelService extends VpnService {
             lastSampledAt = now;
             String speeds = "↑ " + formatSpeed(sentPerSec) + "   ↓ " + formatSpeed(receivedPerSec);
             // The carrier traffic goes through right now; follows failover.
-            String carrier = Mobile.currentTransport();
-            updateNotification(carrier.isEmpty() ? speeds : speeds + " · " + Profile.transportLabel(carrier));
+            String carrier = Profile.carriersLabel(Mobile.currentTransports(), streamType);
+            updateNotification(carrier.isEmpty() ? speeds : speeds + " · " + carrier);
             notificationHandler.postDelayed(this, 1000);
         }
     };
@@ -205,6 +209,8 @@ public final class OpenFluxTunnelService extends VpnService {
                 ? "yandex" : transportTypeExtra;
         String sessionExtra = intent == null ? null : intent.getStringExtra(EXTRA_SESSION_TRANSPORTS);
         sessionTransports = sessionExtra == null ? "" : sessionExtra;
+        boolean stream = intent != null && intent.getBooleanExtra(EXTRA_STREAM, false);
+        streamType = stream ? transportType : "";
         // MAX takes a token; Cups.online a base64 room code, checked by the core.
         boolean needsUrl = !"oneme".equals(transportType) && !"cupsonline".equals(transportType)
                 && sessionTransports.isEmpty();
@@ -255,6 +261,7 @@ public final class OpenFluxTunnelService extends VpnService {
     }
 
     private String startCarrier(String transportType, String url, String encryptionSecret, String codec, String maxToken, String maxUid) {
+        if (!streamType.isEmpty()) return Mobile.startStreamPacket(streamType, url);
         String specs = sessionTransports;
         return specs.isEmpty()
                 ? Mobile.start(transportType, url, encryptionSecret, codec, maxToken, maxUid)

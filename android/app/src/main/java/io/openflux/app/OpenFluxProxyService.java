@@ -58,6 +58,9 @@ public final class OpenFluxProxyService extends Service {
     // Session mode (Mobile.startSession): the profile's transport list as
     // JSON, or empty for the classic single-transport mode.
     private volatile String sessionTransports = "";
+    // Stream mode (Mobile.startStreamProxy, the PHP exit): its transport
+    // type, or empty for the other modes.
+    private volatile String streamType = "";
 
     private final Handler notificationHandler = new Handler(Looper.getMainLooper());
     private long lastSampledSent;
@@ -80,8 +83,8 @@ public final class OpenFluxProxyService extends Service {
             lastSampledAt = now;
             String speeds = "↑ " + formatSpeed(sentPerSec) + "   ↓ " + formatSpeed(receivedPerSec);
             // The carrier traffic goes through right now; follows failover.
-            String carrier = Mobile.currentTransport();
-            updateNotification(carrier.isEmpty() ? speeds : speeds + " · " + Profile.transportLabel(carrier));
+            String carrier = Profile.carriersLabel(Mobile.currentTransports(), streamType);
+            updateNotification(carrier.isEmpty() ? speeds : speeds + " · " + carrier);
             notificationHandler.postDelayed(this, 1000);
         }
     };
@@ -191,6 +194,8 @@ public final class OpenFluxProxyService extends Service {
                 ? "yandex" : transportTypeExtra;
         String sessionExtra = intent == null ? null : intent.getStringExtra(EXTRA_SESSION_TRANSPORTS);
         sessionTransports = sessionExtra == null ? "" : sessionExtra;
+        boolean stream = intent != null && intent.getBooleanExtra(OpenFluxTunnelService.EXTRA_STREAM, false);
+        streamType = stream ? transportType : "";
         // MAX takes a token; Cups.online a base64 room code, checked by the core.
         boolean needsUrl = !"oneme".equals(transportType) && !"cupsonline".equals(transportType)
                 && sessionTransports.isEmpty();
@@ -250,6 +255,7 @@ public final class OpenFluxProxyService extends Service {
 
     private String startCarrier(String transportType, String url, String encryptionSecret, String codec, String maxToken, String maxUid,
             String listen, String username, String password, String bypassDomains) {
+        if (!streamType.isEmpty()) return Mobile.startStreamProxy(streamType, url, listen, username, password, bypassDomains);
         String specs = sessionTransports;
         return specs.isEmpty()
                 ? Mobile.startProxy(transportType, url, encryptionSecret, codec, maxToken, maxUid, listen, username, password, bypassDomains)

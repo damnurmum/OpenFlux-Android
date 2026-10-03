@@ -7,6 +7,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,10 @@ import java.util.Map;
 //
 // In Session mode (the CLI's --negotiate / --transports) the main transport
 // is joined by extra ones, all running at once with failover by priority.
+//
+// In stream mode (the CLI's --mode=stream) there is no server: the exit is a
+// PHP node on ordinary hosting (deploy/phpbox), reached over one Cups.online
+// room or Mail.ru document, with no key and no Session.
 final class Profile {
     long id;
     String name = "";
@@ -29,6 +34,7 @@ final class Profile {
     String maxUid = "";
 
     boolean session;
+    boolean stream;
     int priority = 50;
     // Session encryption context (the exit's --url), set by an imported
     // openflux:// link; empty means the bridge derives it from the transports.
@@ -65,6 +71,7 @@ final class Profile {
         o.put("maxToken", maxToken);
         o.put("maxUid", maxUid);
         o.put("session", session);
+        o.put("stream", stream);
         o.put("priority", priority);
         o.put("context", context);
         JSONArray extras = new JSONArray();
@@ -91,6 +98,7 @@ final class Profile {
         p.maxToken = o.optString("maxToken", "");
         p.maxUid = o.optString("maxUid", "");
         p.session = o.optBoolean("session", false);
+        p.stream = o.optBoolean("stream", false);
         p.priority = o.optInt("priority", 50);
         p.context = o.optString("context", "");
         JSONArray extras = o.optJSONArray("extraTransports");
@@ -117,6 +125,24 @@ final class Profile {
         return "Yandex Docs";
     }
 
+    // The carriers traffic goes through right now (Mobile.currentTransports:
+    // Session names like "boards" or "boards-2", or a classic type) in the
+    // user's words. A stream connection names none, so it passes its type
+    // as streamType.
+    static String carriersLabel(String names, String streamType) {
+        if (names.isEmpty()) names = streamType;
+        StringBuilder out = new StringBuilder();
+        for (String name : names.split(",")) {
+            if (name.isEmpty()) continue;
+            String type = name.replaceFirst("-\\d+$", "");
+            boolean known = Arrays.asList("direct", "yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme")
+                    .contains(type);
+            if (out.length() > 0) out.append(", ");
+            out.append(known ? transportLabel(type) + name.substring(type.length()).replace('-', ' ') : name);
+        }
+        return out.toString();
+    }
+
     // Puts what both connection services need to start this profile; they
     // read the same extra keys.
     void putConnectionExtras(Intent intent) {
@@ -126,6 +152,7 @@ final class Profile {
         intent.putExtra(OpenFluxTunnelService.EXTRA_CODEC, codec);
         intent.putExtra(OpenFluxTunnelService.EXTRA_MAX_TOKEN, maxToken);
         intent.putExtra(OpenFluxTunnelService.EXTRA_MAX_UID, maxUid);
+        intent.putExtra(OpenFluxTunnelService.EXTRA_STREAM, stream);
         String specs = "";
         if (session) {
             try {
@@ -168,6 +195,7 @@ final class Profile {
         p.name = c.optString("name", "");
         if (p.name.isEmpty()) p.name = "OpenFlux";
         p.session = c.optBoolean("negotiate", false);
+        p.stream = "stream".equals(c.optString("mode"));
         p.encryptionSecret = c.optString("secret", "");
         p.codec = "legacy".equals(c.optString("codec")) ? "legacy" : "batched";
         p.context = p.session ? c.optString("context", "") : "";

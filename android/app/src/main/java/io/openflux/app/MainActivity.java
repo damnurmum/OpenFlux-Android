@@ -213,12 +213,15 @@ public final class MainActivity extends Activity {
     private String editorMaxToken = "";
     private String editorMaxUid = "";
     private boolean editorSession;
+    private boolean editorStream;
     private int editorPriority = 50;
     private final List<Profile.Transport> editorExtras = new ArrayList<>();
     private View sessionFieldsContainer;
     private View codecSection;
     private View urlField;
     private TextView encryptionHintView;
+    private View encryptionSection;
+    private View streamHintView;
     private EditText priorityInput;
     private LinearLayout extrasList;
     private EditText profileNameInput;
@@ -414,7 +417,12 @@ public final class MainActivity extends Activity {
     private void importShareLink(String link) {
         Profile p;
         try {
-            p = Profile.fromShare(new JSONObject(Mobile.parseShareLink(link.trim())));
+            JSONObject read = new JSONObject(Mobile.readShareLink(link.trim()));
+            if (!read.has("config")) {
+                Toast.makeText(this, shareLinkProblem(read), Toast.LENGTH_LONG).show();
+                return;
+            }
+            p = Profile.fromShare(read.getJSONObject("config"));
         } catch (Exception e) {
             Toast.makeText(this, "Не удалось прочитать QR: " + e.getMessage(), Toast.LENGTH_LONG).show();
             return;
@@ -423,8 +431,9 @@ public final class MainActivity extends Activity {
                 ? android.R.style.Theme_DeviceDefault_Dialog_Alert
                 : android.R.style.Theme_DeviceDefault_Light_Dialog_Alert)
                 .setTitle("Добавить профиль?")
-                .setMessage(p.name + "\n" + profileTransportSummary(p)
-                        + "\n\nВ коде ключ шифрования ноды: добавляйте QR только от тех, кому доверяете.")
+                .setMessage(p.name + "\n" + profileTransportSummary(p) + (p.stream
+                        ? "\n\nВ коде адрес PHP-ноды: добавляйте QR только от тех, кому доверяете."
+                        : "\n\nВ коде ключ шифрования ноды: добавляйте QR только от тех, кому доверяете."))
                 .setPositiveButton("Добавить", (dialog, which) -> {
                     profiles.add(p);
                     profileStore.save(profiles);
@@ -435,6 +444,36 @@ public final class MainActivity extends Activity {
                 })
                 .setNegativeButton("Отмена", null)
                 .show();
+    }
+
+    // Why the core rejected a link (share.Result's code and param), in the
+    // user's words; the core's English detail is the fallback.
+    private static String shareLinkProblem(JSONObject r) {
+        String param = r.optString("param");
+        switch (r.optString("code")) {
+            case "not_link": return "Это не ссылка OpenFlux";
+            case "unsupported_version": return "Ссылка из более новой версии OpenFlux: обновите приложение";
+            case "case_changed": return "В ссылке по дороге поменялся регистр букв: скопируйте её заново";
+            case "damaged": return "Ссылка повреждена или обрезана: скопируйте её заново";
+            case "too_large": return "Ссылка слишком большая";
+            case "bad_payload":
+            case "bad_config": return "В ссылке нет настроек подключения";
+            case "no_transports": return "В ссылке не указан ни один транспорт";
+            case "several_need_session": return "Несколько транспортов работают только в режиме Session, а в ссылке он выключен";
+            case "session_secret": return "Для Session нужен ключ шифрования не короче " + param + " символов";
+            case "short_secret": return "Ключ шифрования в ссылке короче " + param + " символов";
+            case "unknown_codec": return "Неизвестный кодек «" + param + "»: обновите приложение";
+            case "not_shareable": return "MAX нельзя передать ссылкой: токен привязан к одному аккаунту";
+            case "unknown_transport": return "Неизвестный транспорт «" + param + "»: обновите приложение";
+            case "direct_no_dial": return "Direct: в ссылке нет адреса ноды";
+            case "direct_needs_session": return "Direct работает только в режиме Session";
+            case "unknown_mode": return "Неизвестный режим «" + param + "»: обновите приложение";
+            case "stream_transport": return "Режим без сервера работает только через Cups.online или Mail.ru, а в ссылке "
+                    + Profile.transportLabel(param);
+            case "stream_one_transport": return "В режиме без сервера должен быть ровно один транспорт";
+            case "stream_plain_only": return "В режиме без сервера нет ключа шифрования и Session, а в ссылке они есть";
+            default: return "Не удалось прочитать ссылку: " + r.optString("error");
+        }
     }
 
     // Android 13+ requires this runtime permission to actually display any
@@ -968,6 +1007,7 @@ public final class MainActivity extends Activity {
     }
 
     private String profileTransportSummary(Profile p) {
+        if (p.stream) return "Без сервера: " + transportLabel(p.transportType);
         if (!p.session) return transportLabel(p.transportType);
         StringBuilder summary = new StringBuilder("Session: ").append(transportLabel(p.transportType));
         for (Profile.Transport t : p.extraTransports) summary.append(" + ").append(transportLabel(t.type));
@@ -992,6 +1032,7 @@ public final class MainActivity extends Activity {
         editorMaxToken = existing != null ? existing.maxToken : "";
         editorMaxUid = existing != null ? existing.maxUid : "";
         editorSession = existing != null && existing.session;
+        editorStream = existing != null && existing.stream;
         editorPriority = existing != null ? existing.priority : 50;
         editorExtras.clear();
         if (existing != null) for (Profile.Transport t : existing.extraTransports) editorExtras.add(t.copy());
@@ -1009,8 +1050,14 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "Укажите название профиля", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (editorStream && !"cupsonline".equals(editorTransportType) && !"mailru".equals(editorTransportType)) {
+            Toast.makeText(this, "Режим без сервера работает только через Cups.online или Mail.ru", Toast.LENGTH_LONG).show();
+            return;
+        }
+        // The stream mode has no key; a hidden leftover one must not be saved.
+        if (editorStream) secret = "";
         String valueProblem = transportValueProblem(editorTransportType,
-                "oneme".equals(editorTransportType) ? token : docUrl, true);
+                "oneme".equals(editorTransportType) ? token : docUrl, !editorStream);
         if (valueProblem != null) {
             Toast.makeText(this, valueProblem, Toast.LENGTH_LONG).show();
             return;
@@ -1052,7 +1099,8 @@ public final class MainActivity extends Activity {
         target.codec = editorCodec;
         target.maxToken = token;
         target.maxUid = uid;
-        target.session = editorSession;
+        target.session = editorSession && !editorStream;
+        target.stream = editorStream;
         target.priority = mainPriority;
         target.extraTransports.clear();
         for (Profile.Transport t : editorExtras) target.extraTransports.add(t.copy());
@@ -1424,6 +1472,14 @@ public final class MainActivity extends Activity {
                     {"Режим", "Прокси (SOCKS5)"},
                     {"Локальный порт", String.valueOf(proxyPort)},
                     {"Доступ", proxyAccessSummary()},
+            };
+        }
+        Profile p = selectedProfile();
+        if (p != null && p.stream) {
+            return new String[][]{
+                    {"Режим", "Туннель без сервера (PHP-нода)"},
+                    {"Через ноду", "Только TCP 80 и 443"},
+                    {"Приложения", appFilterSummary()},
             };
         }
         return new String[][]{
@@ -2343,16 +2399,33 @@ public final class MainActivity extends Activity {
         urlField.setVisibility("oneme".equals(editorTransportType) ? View.GONE : View.VISIBLE);
         section.addView(urlField, urlParams);
 
+        TextView streamHint = text("Выход - PHP-нода на обычном хостинге (deploy/phpbox), связь с ней через "
+                + "одну комнату Cups.online или документ Mail.ru. Ключа и Session нет: содержимое защищает "
+                + "TLS самих приложений. Через PHP-ноду идёт только TCP на портах 80 и 443 (сайты и большинство "
+                + "приложений); в режиме туннеля остальной UDP (звонки, игры, QUIC) и IPv6 отбрасываются.",
+                11, secondary, false);
+        streamHintView = streamHint;
+        LinearLayout.LayoutParams streamHintParams = matchWrap();
+        streamHintParams.topMargin = dp(8);
+        streamHintParams.leftMargin = dp(4);
+        streamHintParams.rightMargin = dp(4);
+        section.addView(streamHint, streamHintParams);
+
+        // The key, its hint and the generator; the stream mode has no key.
+        LinearLayout encryptionBox = new LinearLayout(this);
+        encryptionBox.setOrientation(LinearLayout.VERTICAL);
+        encryptionSection = encryptionBox;
+        section.addView(encryptionBox, matchWrap());
         LinearLayout.LayoutParams encryptionParams = new LinearLayout.LayoutParams(-1, dp(FIELD_HEIGHT));
         encryptionParams.topMargin = dp(8);
-        section.addView(buildEncryptionField(initialSecret), encryptionParams);
+        encryptionBox.addView(buildEncryptionField(initialSecret), encryptionParams);
         TextView encryptionHint = text("", 11, secondary, false);
         encryptionHintView = encryptionHint;
         LinearLayout.LayoutParams encryptionHintParams = matchWrap();
         encryptionHintParams.topMargin = dp(5);
         encryptionHintParams.leftMargin = dp(4);
         encryptionHintParams.rightMargin = dp(4);
-        section.addView(encryptionHint, encryptionHintParams);
+        encryptionBox.addView(encryptionHint, encryptionHintParams);
         Button generateKey = new Button(this);
         generateKey.setText("Сгенерировать безопасный ключ");
         generateKey.setAllCaps(false);
@@ -2366,7 +2439,7 @@ public final class MainActivity extends Activity {
         });
         LinearLayout.LayoutParams generateParams = new LinearLayout.LayoutParams(-1, dp(44));
         generateParams.topMargin = dp(4);
-        section.addView(generateKey, generateParams);
+        encryptionBox.addView(generateKey, generateParams);
 
         sessionFieldsContainer = buildSessionFields();
         section.addView(sessionFieldsContainer, matchWrap());
@@ -2394,17 +2467,29 @@ public final class MainActivity extends Activity {
     }
 
     private View buildSessionModeSelector() {
-        return segmented(new String[]{"Классический", "Session"}, editorSession ? 1 : 0, i -> {
+        return segmented(new String[]{"Классический", "Session", "Без сервера"},
+                editorStream ? 2 : editorSession ? 1 : 0, i -> {
             editorSession = i == 1;
+            editorStream = i == 2;
             applySessionVisibility();
         });
+    }
+
+    // The main field's label in the editor: in stream mode Cups.online takes
+    // the room's link, not the classic exit's room code.
+    private String editorValueLabel() {
+        return editorStream && "cupsonline".equals(editorTransportType)
+                ? "Ссылка на комнату Cups.online" : transportValueLabel(editorTransportType);
     }
 
     private void applySessionVisibility() {
         if (sessionFieldsContainer != null) {
             sessionFieldsContainer.setVisibility(editorSession ? View.VISIBLE : View.GONE);
         }
-        if (codecSection != null) codecSection.setVisibility(editorSession ? View.GONE : View.VISIBLE);
+        if (codecSection != null) codecSection.setVisibility(editorSession || editorStream ? View.GONE : View.VISIBLE);
+        if (encryptionSection != null) encryptionSection.setVisibility(editorStream ? View.GONE : View.VISIBLE);
+        if (streamHintView != null) streamHintView.setVisibility(editorStream ? View.VISIBLE : View.GONE);
+        setFloatingLabel(urlInput, editorValueLabel());
         // Session cannot run without the key; classic mode can.
         setFloatingLabel(encryptionInput, editorSession
                 ? "Ключ сквозного шифрования" : "Ключ сквозного шифрования (необязательно)");
@@ -2619,7 +2704,7 @@ public final class MainActivity extends Activity {
             if (maxFieldsContainer != null) {
                 maxFieldsContainer.setVisibility("oneme".equals(editorTransportType) ? View.VISIBLE : View.GONE);
             }
-            setFloatingLabel(urlInput, transportValueLabel(editorTransportType));
+            setFloatingLabel(urlInput, editorValueLabel());
             if (urlField != null) urlField.setVisibility("oneme".equals(editorTransportType) ? View.GONE : View.VISIBLE);
         });
     }
@@ -3370,7 +3455,7 @@ public final class MainActivity extends Activity {
     private View buildUrlField(String initialValue) {
         FrameLayout field = new FrameLayout(this);
         field.setBackground(rounded(surface, border, 1, 10));
-        urlInput = settingInput(transportValueLabel(editorTransportType), initialValue,
+        urlInput = settingInput(editorValueLabel(), initialValue,
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         urlInput.setTransformationMethod(urlVisible ? null : PasswordTransformationMethod.getInstance());
         urlInput.setPadding(dp(16), 0, dp(56), 0);
@@ -3842,8 +3927,12 @@ public final class MainActivity extends Activity {
             long receivedPerSec = isExitMode() ? OpenFluxExitService.getReceivedPerSec()
                     : isProxyMode() ? OpenFluxProxyService.getReceivedPerSec() : OpenFluxTunnelService.getReceivedPerSec();
             speedView.setVisibility(View.VISIBLE);
+            Profile p = selectedProfile();
+            String carriers = Profile.carriersLabel(Mobile.currentTransports(),
+                    p != null && p.stream ? p.transportType : "");
             speedView.setText("↑ " + OpenFluxTunnelService.formatSpeed(sentPerSec)
-                    + "   ↓ " + OpenFluxTunnelService.formatSpeed(receivedPerSec));
+                    + "   ↓ " + OpenFluxTunnelService.formatSpeed(receivedPerSec)
+                    + (carriers.isEmpty() ? "" : "\n" + carriers));
         }
 
         if (state != null && !state.equals(lastAnnouncedState)) {

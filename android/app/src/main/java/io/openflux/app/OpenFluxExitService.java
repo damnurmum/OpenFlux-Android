@@ -73,9 +73,9 @@ public final class OpenFluxExitService extends Service {
             lastSent = sent;
             lastReceived = received;
             lastSampledAt = now;
-            String carrier = Mobile.currentTransport();
+            String carrier = Profile.carriersLabel(Mobile.currentTransports(), "");
             String text = WAITING.equals(status) ? WAITING : speeds;
-            updateNotification(carrier.isEmpty() ? text : text + " · " + Profile.transportLabel(carrier));
+            updateNotification(carrier.isEmpty() ? text : text + " · " + carrier);
             handler.postDelayed(this, 1000);
         }
     };
@@ -111,6 +111,10 @@ public final class OpenFluxExitService extends Service {
         String transportType = typeExtra == null || typeExtra.isEmpty() ? "yandex" : typeExtra;
         String sessionExtra = intent == null ? null : intent.getStringExtra(OpenFluxTunnelService.EXTRA_SESSION_TRANSPORTS);
         sessionTransports = sessionExtra == null ? "" : sessionExtra;
+        if (intent != null && intent.getBooleanExtra(OpenFluxTunnelService.EXTRA_STREAM, false)) {
+            failEarly("Профиль без сервера не работает выходной нодой: выход в нём - PHP-нода на хостинге");
+            return START_NOT_STICKY;
+        }
         String url = intent == null ? null : intent.getStringExtra(OpenFluxTunnelService.EXTRA_DOCUMENT_URL);
         // MAX takes a token; a Cups.online exit creates its rooms itself.
         if (!"oneme".equals(transportType) && !"cupsonline".equals(transportType) && sessionTransports.isEmpty()
