@@ -2960,43 +2960,67 @@ public final class MainActivity extends Activity {
 
     private View buildAppsSettings() {
         LinearLayout section = page();
-        TextView hint = text(
-                "Выберите, какие приложения используют туннель. По умолчанию - все приложения, кроме OpenFlux. "
-                        + "Действует только в режиме туннеля - в режиме прокси приложения подключаются к SOCKS5 сами.",
-                12, secondary, false);
-        section.addView(hint, matchWrap());
-
-        String[] filterModes = {AppFilter.MODE_OFF, AppFilter.MODE_WHITELIST, AppFilter.MODE_BLACKLIST};
-        Runnable[] onFilterChanged = new Runnable[1];
-        View filterChoice = choiceList(new String[][]{
-                {"Все приложения"},
-                {"Только выбранные", "Белый список"},
-                {"Все, кроме выбранных", "Чёрный список"},
-        }, null, Math.max(0, java.util.Arrays.asList(filterModes).indexOf(editorAppFilterMode)), i -> {
-            editorAppFilterMode = filterModes[i];
-            onFilterChanged[0].run();
-        });
-        LinearLayout.LayoutParams modeGroupParams = matchWrap();
-        modeGroupParams.topMargin = dp(12);
-        section.addView(filterChoice, modeGroupParams);
-
-        LinearLayout listContainer = new LinearLayout(this);
-        listContainer.setOrientation(LinearLayout.VERTICAL);
-        listContainer.setVisibility(AppFilter.MODE_OFF.equals(editorAppFilterMode) ? View.GONE : View.VISIBLE);
-        LinearLayout.LayoutParams listContainerParams = new LinearLayout.LayoutParams(-1, 0, 1f);
-        listContainerParams.topMargin = dp(14);
 
         ListView appListView = new ListView(this);
         appListView.setDivider(null);
         appListView.setClipToPadding(false);
         appListView.setPadding(0, 0, 0, dp(8));
         appListView.setVerticalScrollBarEnabled(false);
-        appListView.setAdapter(new AppListAdapter(loadInstalledAppsCached()));
-        listContainer.addView(appListView, new LinearLayout.LayoutParams(-1, -1));
-        section.addView(listContainer, listContainerParams);
+        appListView.setItemsCanFocus(true);
 
-        onFilterChanged[0] = () ->
-                setViewVisibleAnimated(listContainer, !AppFilter.MODE_OFF.equals(editorAppFilterMode));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.VERTICAL);
+
+        TextView hint = text(
+                "Выберите, какие приложения используют туннель. По умолчанию - все приложения, кроме OpenFlux. "
+                        + "Действует только в режиме туннеля - в режиме прокси приложения подключаются к SOCKS5 сами.",
+                12, secondary, false);
+        header.addView(hint, matchWrap());
+
+        AppListAdapter appAdapter =
+                new AppListAdapter(loadInstalledAppsCached());
+
+        android.widget.ArrayAdapter<String> emptyAdapter =
+                new android.widget.ArrayAdapter<>(
+                        this, android.R.layout.simple_list_item_1);
+
+        Runnable updateAppList = () -> {
+            boolean showApps =
+                    !AppFilter.MODE_OFF.equals(editorAppFilterMode);
+
+            header.setPadding(0, 0, 0, showApps ? dp(14) : 0);
+            appListView.setAdapter(showApps ? appAdapter : emptyAdapter);
+        };
+
+        String[] filterModes = {
+                AppFilter.MODE_OFF,
+                AppFilter.MODE_WHITELIST,
+                AppFilter.MODE_BLACKLIST
+        };
+
+        View filterChoice = choiceList(new String[][]{
+                        {"Все приложения"},
+                        {"Только выбранные", "Белый список"},
+                        {"Все, кроме выбранных", "Чёрный список"},
+                }, null,
+                Math.max(0,
+                        java.util.Arrays.asList(filterModes)
+                                .indexOf(editorAppFilterMode)),
+                i -> {
+                    editorAppFilterMode = filterModes[i];
+                    updateAppList.run();
+                });
+
+        LinearLayout.LayoutParams modeGroupParams = matchWrap();
+        modeGroupParams.topMargin = dp(12);
+        header.addView(filterChoice, modeGroupParams);
+
+        appListView.addHeaderView(header, null, false);
+
+        section.addView(appListView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        updateAppList.run();
 
         return section;
     }
