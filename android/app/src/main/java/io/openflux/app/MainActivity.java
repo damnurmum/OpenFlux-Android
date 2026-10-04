@@ -3436,6 +3436,30 @@ public final class MainActivity extends Activity {
 
         AppListAdapter(List<AppEntry> apps) {
             this.apps = apps;
+            sortApps();
+        }
+
+        private void sortApps() {
+            java.text.Collator collator = java.text.Collator.getInstance();
+            collator.setStrength(java.text.Collator.SECONDARY);
+
+            apps.sort((a, b) -> {
+                boolean aSelected =
+                        editorSelectedApps.contains(a.packageName);
+                boolean bSelected =
+                        editorSelectedApps.contains(b.packageName);
+
+                if (aSelected != bSelected) {
+                    return aSelected ? -1 : 1;
+                }
+
+                int byLabel = collator.compare(
+                        a.label, b.label);
+
+                return byLabel != 0
+                        ? byLabel
+                        : a.packageName.compareTo(b.packageName);
+            });
         }
 
         @Override public int getCount() {
@@ -3470,6 +3494,9 @@ public final class MainActivity extends Activity {
                 tap(button);
                 if (checked) editorSelectedApps.add(entry.packageName);
                 else editorSelectedApps.remove(entry.packageName);
+
+                sortApps();
+                notifyDataSetChanged();
             });
             row.setOnClickListener(v -> holder.checkBox.setChecked(!holder.checkBox.isChecked()));
             return row;
