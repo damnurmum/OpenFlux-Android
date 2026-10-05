@@ -3506,10 +3506,18 @@ public final class MainActivity extends Activity {
         row.setBackground(ripple(Color.TRANSPARENT, 8));
         ImageView icon = new ImageView(this);
         row.addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
         TextView labelView = text("", 14, text, false);
+        labels.addView(labelView, new LinearLayout.LayoutParams(-1, -2));
+        TextView packageView = text("", 12, secondary, false);
+        LinearLayout.LayoutParams packageParams = new LinearLayout.LayoutParams(-1, -2);
+        packageParams.topMargin = dp(2);
+        labels.addView(packageView, packageParams);
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, -2, 1f);
         labelParams.leftMargin = dp(12);
-        row.addView(labelView, labelParams);
+        labelParams.rightMargin = dp(12);
+        row.addView(labels, labelParams);
         CheckBox checkBox = new CheckBox(this);
         checkBox.setButtonTintList(ColorStateList.valueOf(accent));
         row.addView(checkBox, new LinearLayout.LayoutParams(-2, -2));
@@ -3531,12 +3539,15 @@ public final class MainActivity extends Activity {
     private static final class AppRowHolder {
         final ImageView icon;
         final TextView label;
+        final TextView packageName;
         final CheckBox checkBox;
 
         AppRowHolder(View row) {
             LinearLayout layout = (LinearLayout) row;
             icon = (ImageView) layout.getChildAt(0);
-            label = (TextView) layout.getChildAt(1);
+            LinearLayout labels = (LinearLayout) layout.getChildAt(1);
+            label = (TextView) labels.getChildAt(0);
+            packageName = (TextView) labels.getChildAt(1);
             checkBox = (CheckBox) layout.getChildAt(2);
         }
     }
@@ -3664,6 +3675,7 @@ public final class MainActivity extends Activity {
             AppRowHolder holder = viewHolder.appRow;
             holder.icon.setImageDrawable(entry.icon);
             holder.label.setText(entry.label);
+            holder.packageName.setText(entry.packageName);
             holder.checkBox.setOnCheckedChangeListener(null);
             holder.checkBox.setChecked(editorSelectedApps.contains(entry.packageName));
             holder.checkBox.setOnCheckedChangeListener((button, checked) -> {
