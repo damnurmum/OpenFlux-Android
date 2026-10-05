@@ -2998,9 +2998,98 @@ public final class MainActivity extends Activity {
         int generation = ++appsSettingsGeneration;
         List<AppEntry> cachedApps = getInstalledAppsCache(showSystemApps);
         boolean loadingNeeded = cachedApps == null;
+        View searchSpacer = new View(this);
         AppListAdapter appAdapter = new AppListAdapter(
                 loadingNeeded ? Collections.emptyList() : cachedApps, header,
-                !AppFilter.MODE_OFF.equals(editorAppFilterMode));
+                !AppFilter.MODE_OFF.equals(editorAppFilterMode), searchSpacer);
+
+        LinearLayout searchRow = new LinearLayout(this);
+        searchRow.setGravity(Gravity.CENTER_VERTICAL);
+        searchRow.setBackground(rounded(surface, border, 1, 10));
+        EditText searchInput = settingInput("Поиск по названию или пакету", "",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        searchInput.setSingleLine(true);
+        searchInput.setContentDescription("Поиск приложений по названию или имени пакета");
+        searchInput.setPadding(dp(14), 0, 0, 0);
+        searchInput.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
+        searchRow.addView(searchInput, new LinearLayout.LayoutParams(0, -1, 1f));
+        ImageButton clearSearch = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
+                "Очистить поиск");
+        clearSearch.setVisibility(View.INVISIBLE);
+        clearSearch.setOnClickListener(v -> {
+            tap(v);
+            searchInput.setText("");
+        });
+        searchRow.addView(clearSearch, new LinearLayout.LayoutParams(dp(48), -1));
+
+        TextView emptyResults = text("Ничего не найдено", 12, secondary, false);
+        emptyResults.setVisibility(View.GONE);
+        Runnable updateSearchSpacer = () -> {
+            boolean searching = !AppFilter.MODE_OFF.equals(editorAppFilterMode)
+                    && ((keyboardOpen && searchInput.hasFocus())
+                    || !searchInput.getText().toString().trim().isEmpty());
+            int height = searching ? Math.max(0, appListView.getHeight()
+                    - appListView.getPaddingTop() - appListView.getPaddingBottom()
+                    - searchRow.getHeight() - header.getPaddingBottom()) : 0;
+            appAdapter.setSearchSpacerHeight(height);
+        };
+        Runnable updateSearchState = () -> {
+            clearSearch.setVisibility(searchInput.length() == 0 ? View.INVISIBLE : View.VISIBLE);
+            boolean noResults = !AppFilter.MODE_OFF.equals(editorAppFilterMode)
+                    && getInstalledAppsCache(showSystemApps) != null
+                    && !searchInput.getText().toString().trim().isEmpty()
+                    && appAdapter.getVisibleAppsCount() == 0;
+            emptyResults.setVisibility(noResults ? View.VISIBLE : View.GONE);
+            updateSearchSpacer.run();
+        };
+        bindText(searchInput, query -> {
+            appAdapter.setSearchQuery(query);
+            updateSearchState.run();
+        });
+        searchInput.setOnEditorActionListener((view, actionId, event) -> {
+            if (actionId != android.view.inputmethod.EditorInfo.IME_ACTION_DONE) return false;
+            android.view.inputmethod.InputMethodManager keyboard =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (keyboard != null) keyboard.hideSoftInputFromWindow(searchInput.getWindowToken(), 0);
+            searchInput.clearFocus();
+            return true;
+        });
+        searchRow.setVisibility(AppFilter.MODE_OFF.equals(editorAppFilterMode) ? View.GONE : View.VISIBLE);
+
+        Runnable alignSearch = () -> {
+            if (!keyboardOpen || !searchInput.hasFocus() || !appListView.isAttachedToWindow()
+                    || searchRow.getVisibility() != View.VISIBLE || searchRow.getHeight() == 0) return;
+            // The search field is nested in the header; measure its current top in list coordinates.
+            int distance = header.getTop() + searchRow.getTop()
+                    - appListView.getPaddingTop() - dp(6);
+            if (Math.abs(distance) <= dp(1)) return;
+            appListView.smoothScrollBy(0, distance,
+                    new android.view.animation.AccelerateDecelerateInterpolator(), 300);
+        };
+        Runnable requestSearchAlignment = () -> {
+            appListView.removeCallbacks(alignSearch);
+            // Run after layout, when the keyboard's insets and header measurements are applied.
+            appListView.post(alignSearch);
+        };
+        searchInput.setOnFocusChangeListener((view, focused) -> {
+            updateSearchSpacer.run();
+            if (focused) requestSearchAlignment.run();
+            else appListView.removeCallbacks(alignSearch);
+        });
+        searchInput.setOnFocusChangeListener((view, focused) ->
+                updateSearchSpacer.run());
+
+        appListView.addOnLayoutChangeListener((view, left, top, right, bottom,
+                                               oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (bottom - top == oldBottom - oldTop
+                    && right - left == oldRight - oldLeft) return;
+
+            // Update after layout, outside RecyclerView's layout calculation.
+            appListView.post(() -> {
+                if (!appListView.isAttachedToWindow()) return;
+                updateSearchSpacer.run();
+            });
+        });
 
         String[] filterModes = {
                 AppFilter.MODE_OFF,
@@ -3020,6 +3109,33 @@ public final class MainActivity extends Activity {
                     editorAppFilterMode = filterModes[i];
                     appAdapter.setAppsVisible(
                             !AppFilter.MODE_OFF.equals(editorAppFilterMode));
+                    boolean visible = !AppFilter.MODE_OFF.equals(editorAppFilterMode);
+                    searchRow.animate().cancel();
+
+                    if (visible) {
+                        searchRow.setAlpha(1f);
+                        searchRow.setVisibility(View.VISIBLE);
+                    } else {
+                        RecyclerView.ItemAnimator listAnimator  = appListView.getItemAnimator();
+                        long duration = listAnimator  != null ? listAnimator.getRemoveDuration() : 0L;
+
+                        searchRow.animate()
+                                .alpha(0f)
+                                .setDuration(duration)
+                                .withEndAction(() -> {
+                                    if (AppFilter.MODE_OFF.equals(editorAppFilterMode)) {
+                                        searchRow.setVisibility(View.GONE);
+                                    }
+                                })
+                                .start();
+                    }
+                    if (!visible) {
+                        android.view.inputmethod.InputMethodManager keyboard =
+                                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                        if (keyboard != null) keyboard.hideSoftInputFromWindow(searchInput.getWindowToken(), 0);
+                        searchInput.clearFocus();
+                    }
+                    updateSearchState.run();
                 });
 
         LinearLayout.LayoutParams modeGroupParams = matchWrap();
@@ -3034,6 +3150,13 @@ public final class MainActivity extends Activity {
         systemAppsParams.topMargin = dp(12);
         header.addView(systemAppsRow, systemAppsParams);
 
+        LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, dp(48));
+        searchParams.topMargin = dp(12);
+        header.addView(searchRow, searchParams);
+        LinearLayout.LayoutParams emptyParams = matchWrap();
+        emptyParams.topMargin = dp(12);
+        header.addView(emptyResults, emptyParams);
+
         TextView loadStatus = text("", 12, secondary, false);
         loadStatus.setVisibility(View.GONE);
         LinearLayout.LayoutParams statusParams = matchWrap();
@@ -3045,6 +3168,7 @@ public final class MainActivity extends Activity {
         requestApps[0] = () -> {
             int requestId = ++loadRequest[0];
             boolean includeSystem = showSystemApps;
+            emptyResults.setVisibility(View.GONE);
             loadStatus.setVisibility(View.GONE);
             loadStatus.setOnClickListener(null);
             loadInstalledAppsAsync(includeSystem, loaded -> {
@@ -3065,6 +3189,7 @@ public final class MainActivity extends Activity {
 
                 loadStatus.setVisibility(View.GONE);
                 appAdapter.setLoadedApps(loaded);
+                updateSearchState.run();
             });
         };
 
@@ -3564,22 +3689,41 @@ public final class MainActivity extends Activity {
     private final class AppListAdapter extends RecyclerView.Adapter<AppPickerViewHolder> {
         private static final int TYPE_HEADER = 0;
         private static final int TYPE_APP = 1;
+        private static final int TYPE_SPACER = 2;
 
         private final List<AppEntry> apps;
+        private final List<AppEntry> visibleApps = new ArrayList<>();
+        private String searchQuery = "";
         private final LinearLayout header;
+        private final View searchSpacer;
+        private int searchSpacerHeight;
         private final LinkedHashMap<String, Long> itemIds = new LinkedHashMap<>();
         private boolean appsVisible;
 
-        AppListAdapter(List<AppEntry> apps, LinearLayout header, boolean appsVisible) {
+        AppListAdapter(List<AppEntry> apps, LinearLayout header, boolean appsVisible, View searchSpacer) {
             // Keep the installed-app cache independent of this screen's ordering.
             this.apps = new ArrayList<>(apps);
             this.header = header;
+            this.searchSpacer = searchSpacer;
             this.appsVisible = appsVisible;
             header.setPadding(0, 0, 0, dp(14));
 
             assignItemIds();
             setHasStableIds(true);
             sortApps();
+            rebuildVisibleApps();
+        }
+
+        void setSearchSpacerHeight(int height) {
+            height = Math.max(0, height);
+            if (searchSpacerHeight == height) return;
+            searchSpacerHeight = height;
+            // Keep enough scroll range for a short result list without adding fake applications.
+            ViewGroup.LayoutParams params = searchSpacer.getLayoutParams();
+            if (params != null) {
+                params.height = height;
+                searchSpacer.setLayoutParams(params);
+            }
         }
 
         private void assignItemIds() {
@@ -3592,29 +3736,63 @@ public final class MainActivity extends Activity {
         }
 
         void setLoadedApps(List<AppEntry> loaded) {
-            List<AppEntry> previous = new ArrayList<>(apps);
+            List<AppEntry> previous = new ArrayList<>(visibleApps);
             apps.clear();
             apps.addAll(loaded);
             assignItemIds();
             sortApps();
-            if (!appsVisible) return;
+            rebuildVisibleApps();
+            if (appsVisible) dispatchAppDiff(previous);
+        }
 
-            // Keep existing rows instead of removing and reinserting the entire list.
-            // Include the permanent header in the diff's adapter positions.
+        void setSearchQuery(String query) {
+            String normalized = query.trim().toLowerCase(java.util.Locale.ROOT);
+            if (searchQuery.equals(normalized)) return;
+            List<AppEntry> previous = new ArrayList<>(visibleApps);
+            searchQuery = normalized;
+            rebuildVisibleApps();
+            if (appsVisible) dispatchAppDiff(previous);
+        }
+
+        int getVisibleAppsCount() {
+            return visibleApps.size();
+        }
+
+        private void rebuildVisibleApps() {
+            // Filtering changes only the displayed list, never the selected package set.
+            visibleApps.clear();
+            for (AppEntry entry : apps) {
+                if (searchQuery.isEmpty()
+                        || entry.label.toLowerCase(java.util.Locale.ROOT).contains(searchQuery)
+                        || entry.packageName.toLowerCase(java.util.Locale.ROOT).contains(searchQuery)) {
+                    visibleApps.add(entry);
+                }
+            }
+        }
+
+        private void dispatchAppDiff(List<AppEntry> previous) {
+            List<AppEntry> current = new ArrayList<>(visibleApps);
+            // Keep the header and spacer identities stable while application results change.
             DiffUtil.calculateDiff(new DiffUtil.Callback() {
-                @Override public int getOldListSize() { return previous.size() + 1; }
-                @Override public int getNewListSize() { return apps.size() + 1; }
+                @Override public int getOldListSize() { return previous.size() + 2; }
+                @Override public int getNewListSize() { return current.size() + 2; }
 
                 @Override public boolean areItemsTheSame(int oldPosition, int newPosition) {
                     if (oldPosition == 0 || newPosition == 0) return oldPosition == newPosition;
+                    boolean oldSpacer = oldPosition == previous.size() + 1;
+                    boolean newSpacer = newPosition == current.size() + 1;
+                    if (oldSpacer || newSpacer) return oldSpacer && newSpacer;
                     return previous.get(oldPosition - 1).packageName
-                            .equals(apps.get(newPosition - 1).packageName);
+                            .equals(current.get(newPosition - 1).packageName);
                 }
 
                 @Override public boolean areContentsTheSame(int oldPosition, int newPosition) {
                     if (oldPosition == 0 || newPosition == 0) return oldPosition == newPosition;
+                    boolean oldSpacer = oldPosition == previous.size() + 1;
+                    boolean newSpacer = newPosition == current.size() + 1;
+                    if (oldSpacer || newSpacer) return oldSpacer && newSpacer;
                     AppEntry oldEntry = previous.get(oldPosition - 1);
-                    AppEntry newEntry = apps.get(newPosition - 1);
+                    AppEntry newEntry = current.get(newPosition - 1);
                     return oldEntry.label.equals(newEntry.label) && oldEntry.icon == newEntry.icon;
                 }
             }).dispatchUpdatesTo(this);
@@ -3642,36 +3820,39 @@ public final class MainActivity extends Activity {
             header.setPadding(0, 0, 0, dp(14));
 
             // The header always remains at position zero.
-            if (!apps.isEmpty()) {
-                if (visible) notifyItemRangeInserted(1, apps.size());
-                else notifyItemRangeRemoved(1, apps.size());
-            }
+            int count = visibleApps.size() + 1;
+            if (visible) notifyItemRangeInserted(1, count);
+            else notifyItemRangeRemoved(1, count);
         }
 
         @Override public int getItemCount() {
-            return 1 + (appsVisible ? apps.size() : 0);
+            return 1 + (appsVisible ? visibleApps.size() + 1 : 0);
         }
 
         @Override public int getItemViewType(int position) {
-            return position == 0 ? TYPE_HEADER : TYPE_APP;
+            if (position == 0) return TYPE_HEADER;
+            return position == visibleApps.size() + 1 ? TYPE_SPACER : TYPE_APP;
         }
 
         @Override public long getItemId(int position) {
-            return position == 0 ? 0L : itemIds.get(apps.get(position - 1).packageName);
+            if (position == 0) return 0L;
+            if (position == visibleApps.size() + 1) return Long.MAX_VALUE;
+            return itemIds.get(visibleApps.get(position - 1).packageName);
         }
 
         @Override public AppPickerViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-            View view = viewType == TYPE_HEADER ? header : buildAppRow();
+            View view = viewType == TYPE_HEADER ? header
+                    : viewType == TYPE_SPACER ? searchSpacer : buildAppRow();
             view.setLayoutParams(new RecyclerView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT));
+                    viewType == TYPE_SPACER ? searchSpacerHeight : ViewGroup.LayoutParams.WRAP_CONTENT));
             return new AppPickerViewHolder(view, viewType == TYPE_APP);
         }
 
         @Override public void onBindViewHolder(AppPickerViewHolder viewHolder, int position) {
-            if (position == 0) return;
+            if (viewHolder.appRow == null) return;
 
-            AppEntry entry = apps.get(position - 1);
+            AppEntry entry = visibleApps.get(position - 1);
             AppRowHolder holder = viewHolder.appRow;
             holder.icon.setImageDrawable(entry.icon);
             holder.label.setText(entry.label);
@@ -3697,6 +3878,7 @@ public final class MainActivity extends Activity {
             if (!changed) return;
 
             sortApps();
+            rebuildVisibleApps();
             int newPosition = findAppPosition(entry.packageName);
             if (appsVisible && oldPosition != newPosition) {
                 // Only this package moved; RecyclerView animates affected rows.
@@ -3707,8 +3889,8 @@ public final class MainActivity extends Activity {
 
         private int findAppPosition(String packageName) {
             // Bound rows may still reference entries from the previous cached list.
-            for (int i = 0; i < apps.size(); i++) {
-                if (apps.get(i).packageName.equals(packageName)) return i;
+            for (int i = 0; i < visibleApps.size(); i++) {
+                if (visibleApps.get(i).packageName.equals(packageName)) return i;
             }
             return -1;
         }
