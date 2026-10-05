@@ -3564,7 +3564,7 @@ public final class MainActivity extends Activity {
             this.apps = new ArrayList<>(apps);
             this.header = header;
             this.appsVisible = appsVisible;
-            header.setPadding(0, 0, 0, appsVisible ? dp(14) : 0);
+            header.setPadding(0, 0, 0, dp(14));
 
             assignItemIds();
             setHasStableIds(true);
@@ -3628,7 +3628,7 @@ public final class MainActivity extends Activity {
         void setAppsVisible(boolean visible) {
             if (appsVisible == visible) return;
             appsVisible = visible;
-            header.setPadding(0, 0, 0, visible ? dp(14) : 0);
+            header.setPadding(0, 0, 0, dp(14));
 
             // The header always remains at position zero.
             if (!apps.isEmpty()) {
