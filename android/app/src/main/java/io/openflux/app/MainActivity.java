@@ -51,7 +51,6 @@ import android.view.Window;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.LinearInterpolator;
 import android.view.animation.OvershootInterpolator;
-import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -60,7 +59,6 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ListView;
 import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.Switch;
@@ -89,6 +87,10 @@ import java.util.function.Consumer;
 import java.util.WeakHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import androidx.recyclerview.widget.DefaultItemAnimator;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
@@ -279,6 +281,9 @@ public final class MainActivity extends Activity {
     private final LinkedHashSet<String> editorEnabledDomainPresets = new LinkedHashSet<>();
     private EditText customDomainsInput;
     private List<AppEntry> installedAppsCache;
+    private boolean installedAppsLoading;
+    private int appsSettingsGeneration;
+    private final List<Consumer<List<AppEntry>>> installedAppsCallbacks = new ArrayList<>();
 
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
@@ -2961,12 +2966,18 @@ public final class MainActivity extends Activity {
     private View buildAppsSettings() {
         LinearLayout section = page();
 
-        ListView appListView = new ListView(this);
-        appListView.setDivider(null);
+        RecyclerView appListView = new RecyclerView(this);
+        appListView.setLayoutManager(new LinearLayoutManager(this));
         appListView.setClipToPadding(false);
         appListView.setPadding(0, 0, 0, dp(8));
         appListView.setVerticalScrollBarEnabled(false);
-        appListView.setItemsCanFocus(true);
+
+        DefaultItemAnimator animator = new DefaultItemAnimator();
+        animator.setMoveDuration(280);
+        animator.setAddDuration(160);
+        animator.setRemoveDuration(160);
+        animator.setSupportsChangeAnimations(false);
+        appListView.setItemAnimator(animator);
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
@@ -2977,20 +2988,11 @@ public final class MainActivity extends Activity {
                 12, secondary, false);
         header.addView(hint, matchWrap());
 
-        AppListAdapter appAdapter =
-                new AppListAdapter(loadInstalledAppsCached());
-
-        android.widget.ArrayAdapter<String> emptyAdapter =
-                new android.widget.ArrayAdapter<>(
-                        this, android.R.layout.simple_list_item_1);
-
-        Runnable updateAppList = () -> {
-            boolean showApps =
-                    !AppFilter.MODE_OFF.equals(editorAppFilterMode);
-
-            header.setPadding(0, 0, 0, showApps ? dp(14) : 0);
-            appListView.setAdapter(showApps ? appAdapter : emptyAdapter);
-        };
+        int generation = ++appsSettingsGeneration;
+        boolean loadingNeeded = installedAppsCache == null;
+        AppListAdapter appAdapter = new AppListAdapter(
+                loadingNeeded ? Collections.emptyList() : installedAppsCache, header,
+                !AppFilter.MODE_OFF.equals(editorAppFilterMode));
 
         String[] filterModes = {
                 AppFilter.MODE_OFF,
@@ -3008,20 +3010,49 @@ public final class MainActivity extends Activity {
                                 .indexOf(editorAppFilterMode)),
                 i -> {
                     editorAppFilterMode = filterModes[i];
-                    updateAppList.run();
+                    appAdapter.setAppsVisible(
+                            !AppFilter.MODE_OFF.equals(editorAppFilterMode));
                 });
 
         LinearLayout.LayoutParams modeGroupParams = matchWrap();
         modeGroupParams.topMargin = dp(12);
         header.addView(filterChoice, modeGroupParams);
 
-        appListView.addHeaderView(header, null, false);
+        TextView loadStatus = text("", 12, secondary, false);
+        loadStatus.setVisibility(View.GONE);
+        LinearLayout.LayoutParams statusParams = matchWrap();
+        statusParams.topMargin = dp(12);
+        header.addView(loadStatus, statusParams);
 
+        Runnable[] requestApps = new Runnable[1];
+        requestApps[0] = () -> {
+            loadStatus.setVisibility(View.GONE);
+            loadStatus.setOnClickListener(null);
+            loadInstalledAppsAsync(loaded -> {
+                // A previous screen must not update the current settings draft.
+                if (generation != appsSettingsGeneration || currentPage != PAGE_SETTINGS
+                        || !settingsDetailOpen || settingsSubTab != SETTINGS_APPS) return;
+
+                if (loaded == null) {
+                    loadStatus.setText("Не удалось загрузить приложения. Нажмите, чтобы повторить.");
+                    loadStatus.setVisibility(View.VISIBLE);
+                    loadStatus.setOnClickListener(v -> {
+                        tap(v);
+                        requestApps[0].run();
+                    });
+                    return;
+                }
+
+                loadStatus.setVisibility(View.GONE);
+                appAdapter.setLoadedApps(loaded);
+            });
+        };
+
+        appListView.setAdapter(appAdapter);
         section.addView(appListView, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        updateAppList.run();
-
+        if (loadingNeeded) requestApps[0].run();
         return section;
     }
 
@@ -3360,9 +3391,36 @@ public final class MainActivity extends Activity {
         return button;
     }
 
-    private List<AppEntry> loadInstalledAppsCached() {
-        if (installedAppsCache == null) installedAppsCache = loadInstalledApps();
-        return installedAppsCache;
+    private void loadInstalledAppsAsync(Consumer<List<AppEntry>> onLoaded) {
+        // Cache, callbacks and adapter updates are accessed only on the UI thread.
+        if (installedAppsCache != null) {
+            onLoaded.accept(installedAppsCache);
+            return;
+        }
+        installedAppsCallbacks.add(onLoaded);
+        if (installedAppsLoading) return;
+        installedAppsLoading = true;
+
+        new Thread(() -> {
+            List<AppEntry> result;
+            try {
+                // Package queries, labels and icons can take hundreds of milliseconds.
+                result = loadInstalledApps();
+            } catch (RuntimeException error) {
+                android.util.Log.w("OpenFlux", "Failed to load installed apps", error);
+                result = null;
+            }
+            List<AppEntry> loaded = result;
+            handler.post(() -> {
+                installedAppsLoading = false;
+                if (loaded != null) installedAppsCache = loaded;
+                List<Consumer<List<AppEntry>>> callbacks =
+                        new ArrayList<>(installedAppsCallbacks);
+                installedAppsCallbacks.clear();
+                if (isFinishing() || isDestroyed()) return;
+                for (Consumer<List<AppEntry>> callback : callbacks) callback.accept(loaded);
+            });
+        }, "load-installed-apps").start();
     }
 
     private List<AppEntry> loadInstalledApps() {
@@ -3377,7 +3435,6 @@ public final class MainActivity extends Activity {
             byPackage.put(packageName, new AppEntry(packageName, label, icon));
         }
         List<AppEntry> apps = new ArrayList<>(byPackage.values());
-        Collections.sort(apps, Comparator.comparing(entry -> entry.label.toLowerCase()));
         return apps;
     }
 
@@ -3431,12 +3488,54 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private final class AppListAdapter extends BaseAdapter {
-        private final List<AppEntry> apps;
+    private static final class AppPickerViewHolder extends RecyclerView.ViewHolder {
+        final AppRowHolder appRow;
 
-        AppListAdapter(List<AppEntry> apps) {
-            this.apps = apps;
+        AppPickerViewHolder(View view, boolean isAppRow) {
+            super(view);
+            appRow = isAppRow ? new AppRowHolder(view) : null;
+        }
+    }
+
+    private final class AppListAdapter extends RecyclerView.Adapter<AppPickerViewHolder> {
+        private static final int TYPE_HEADER = 0;
+        private static final int TYPE_APP = 1;
+
+        private final List<AppEntry> apps;
+        private final LinearLayout header;
+        private final LinkedHashMap<String, Long> itemIds = new LinkedHashMap<>();
+        private boolean appsVisible;
+
+        AppListAdapter(List<AppEntry> apps, LinearLayout header, boolean appsVisible) {
+            // Keep the installed-app cache independent of this screen's ordering.
+            this.apps = new ArrayList<>(apps);
+            this.header = header;
+            this.appsVisible = appsVisible;
+            header.setPadding(0, 0, 0, appsVisible ? dp(14) : 0);
+
+            assignItemIds();
+            setHasStableIds(true);
             sortApps();
+        }
+
+        private void assignItemIds() {
+            // Keep package IDs stable even if the backing list is replaced.
+            for (AppEntry entry : apps) {
+                if (!itemIds.containsKey(entry.packageName)) {
+                    itemIds.put(entry.packageName, (long) itemIds.size() + 1);
+                }
+            }
+        }
+
+        void setLoadedApps(List<AppEntry> loaded) {
+            int oldVisibleCount = appsVisible ? apps.size() : 0;
+            apps.clear();
+            apps.addAll(loaded);
+            assignItemIds();
+            sortApps();
+
+            if (oldVisibleCount > 0) notifyItemRangeRemoved(1, oldVisibleCount);
+            if (appsVisible && !apps.isEmpty()) notifyItemRangeInserted(1, apps.size());
         }
 
         private void sortApps() {
@@ -3444,62 +3543,91 @@ public final class MainActivity extends Activity {
             collator.setStrength(java.text.Collator.SECONDARY);
 
             apps.sort((a, b) -> {
-                boolean aSelected =
-                        editorSelectedApps.contains(a.packageName);
-                boolean bSelected =
-                        editorSelectedApps.contains(b.packageName);
+                boolean aSelected = editorSelectedApps.contains(a.packageName);
+                boolean bSelected = editorSelectedApps.contains(b.packageName);
+                if (aSelected != bSelected) return aSelected ? -1 : 1;
 
-                if (aSelected != bSelected) {
-                    return aSelected ? -1 : 1;
-                }
-
-                int byLabel = collator.compare(
-                        a.label, b.label);
-
+                int byLabel = collator.compare(a.label, b.label);
                 return byLabel != 0
                         ? byLabel
                         : a.packageName.compareTo(b.packageName);
             });
         }
 
-        @Override public int getCount() {
-            return apps.size();
+        void setAppsVisible(boolean visible) {
+            if (appsVisible == visible) return;
+            appsVisible = visible;
+            header.setPadding(0, 0, 0, visible ? dp(14) : 0);
+
+            // The header always remains at position zero.
+            if (!apps.isEmpty()) {
+                if (visible) notifyItemRangeInserted(1, apps.size());
+                else notifyItemRangeRemoved(1, apps.size());
+            }
         }
 
-        @Override public Object getItem(int position) {
-            return apps.get(position);
+        @Override public int getItemCount() {
+            return 1 + (appsVisible ? apps.size() : 0);
+        }
+
+        @Override public int getItemViewType(int position) {
+            return position == 0 ? TYPE_HEADER : TYPE_APP;
         }
 
         @Override public long getItemId(int position) {
-            return position;
+            return position == 0 ? 0L : itemIds.get(apps.get(position - 1).packageName);
         }
 
-        @Override public View getView(int position, View convertView, ViewGroup parent) {
-            View row;
-            AppRowHolder holder;
-            if (convertView != null && convertView.getTag() instanceof AppRowHolder) {
-                row = convertView;
-                holder = (AppRowHolder) row.getTag();
-            } else {
-                row = buildAppRow();
-                holder = new AppRowHolder(row);
-                row.setTag(holder);
-            }
-            AppEntry entry = apps.get(position);
+        @Override public AppPickerViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            View view = viewType == TYPE_HEADER ? header : buildAppRow();
+            view.setLayoutParams(new RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+            return new AppPickerViewHolder(view, viewType == TYPE_APP);
+        }
+
+        @Override public void onBindViewHolder(AppPickerViewHolder viewHolder, int position) {
+            if (position == 0) return;
+
+            AppEntry entry = apps.get(position - 1);
+            AppRowHolder holder = viewHolder.appRow;
             holder.icon.setImageDrawable(entry.icon);
             holder.label.setText(entry.label);
             holder.checkBox.setOnCheckedChangeListener(null);
             holder.checkBox.setChecked(editorSelectedApps.contains(entry.packageName));
             holder.checkBox.setOnCheckedChangeListener((button, checked) -> {
+                if (viewHolder.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
                 tap(button);
-                if (checked) editorSelectedApps.add(entry.packageName);
-                else editorSelectedApps.remove(entry.packageName);
-
-                sortApps();
-                notifyDataSetChanged();
+                updateSelection(entry, checked);
             });
-            row.setOnClickListener(v -> holder.checkBox.setChecked(!holder.checkBox.isChecked()));
-            return row;
+            viewHolder.itemView.setOnClickListener(v ->
+                    holder.checkBox.setChecked(!holder.checkBox.isChecked()));
+        }
+
+        private void updateSelection(AppEntry entry, boolean checked) {
+            int oldPosition = apps.indexOf(entry);
+            if (oldPosition < 0) return;
+
+            boolean changed = checked
+                    ? editorSelectedApps.add(entry.packageName)
+                    : editorSelectedApps.remove(entry.packageName);
+            if (!changed) return;
+
+            sortApps();
+            int newPosition = apps.indexOf(entry);
+            if (appsVisible && oldPosition != newPosition) {
+                // Only this package moved; RecyclerView animates affected rows.
+                // Offset by one because the header is also an adapter item.
+                notifyItemMoved(oldPosition + 1, newPosition + 1);
+            }
+        }
+
+        @Override public void onViewRecycled(AppPickerViewHolder viewHolder) {
+            if (viewHolder.appRow != null) {
+                viewHolder.appRow.checkBox.setOnCheckedChangeListener(null);
+                viewHolder.itemView.setOnClickListener(null);
+            }
+            super.onViewRecycled(viewHolder);
         }
     }
 
