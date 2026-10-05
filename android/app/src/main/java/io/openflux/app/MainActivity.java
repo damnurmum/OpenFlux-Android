@@ -13,6 +13,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -89,6 +90,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import androidx.recyclerview.widget.DefaultItemAnimator;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -281,6 +283,10 @@ public final class MainActivity extends Activity {
     private final LinkedHashSet<String> editorEnabledDomainPresets = new LinkedHashSet<>();
     private EditText customDomainsInput;
     private List<AppEntry> installedAppsCache;
+    private List<AppEntry> allInstalledAppsCache;
+    private boolean showSystemApps;
+    private boolean allInstalledAppsLoading;
+    private final List<Consumer<List<AppEntry>>> allInstalledAppsCallbacks = new ArrayList<>();
     private boolean installedAppsLoading;
     private int appsSettingsGeneration;
     private final List<Consumer<List<AppEntry>>> installedAppsCallbacks = new ArrayList<>();
@@ -326,6 +332,7 @@ public final class MainActivity extends Activity {
                 : isSystemDark();
         appFilterPrefs = getSharedPreferences(AppFilter.PREFS_NAME, MODE_PRIVATE);
         appFilterMode = appFilterPrefs.getString(AppFilter.KEY_MODE, AppFilter.MODE_OFF);
+        showSystemApps = appFilterPrefs.getBoolean("show_system_apps", false);
         selectedApps.addAll(appFilterPrefs.getStringSet(AppFilter.KEY_PACKAGES, Collections.emptySet()));
         domainFilterPrefs = getSharedPreferences(DomainFilter.PREFS_NAME, MODE_PRIVATE);
         enabledDomainPresets.addAll(DomainFilter.loadEnabledPresets(domainFilterPrefs));
@@ -2989,9 +2996,10 @@ public final class MainActivity extends Activity {
         header.addView(hint, matchWrap());
 
         int generation = ++appsSettingsGeneration;
-        boolean loadingNeeded = installedAppsCache == null;
+        List<AppEntry> cachedApps = getInstalledAppsCache(showSystemApps);
+        boolean loadingNeeded = cachedApps == null;
         AppListAdapter appAdapter = new AppListAdapter(
-                loadingNeeded ? Collections.emptyList() : installedAppsCache, header,
+                loadingNeeded ? Collections.emptyList() : cachedApps, header,
                 !AppFilter.MODE_OFF.equals(editorAppFilterMode));
 
         String[] filterModes = {
@@ -3018,6 +3026,14 @@ public final class MainActivity extends Activity {
         modeGroupParams.topMargin = dp(12);
         header.addView(filterChoice, modeGroupParams);
 
+        Switch systemAppsSwitch = settingSwitch(R.drawable.ic_apps,
+                "Показать системные приложения",
+                "Включая приложения без значка в меню", showSystemApps);
+        View systemAppsRow = (View) systemAppsSwitch.getTag();
+        LinearLayout.LayoutParams systemAppsParams = matchWrap();
+        systemAppsParams.topMargin = dp(12);
+        header.addView(systemAppsRow, systemAppsParams);
+
         TextView loadStatus = text("", 12, secondary, false);
         loadStatus.setVisibility(View.GONE);
         LinearLayout.LayoutParams statusParams = matchWrap();
@@ -3025,12 +3041,16 @@ public final class MainActivity extends Activity {
         header.addView(loadStatus, statusParams);
 
         Runnable[] requestApps = new Runnable[1];
+        int[] loadRequest = {0};
         requestApps[0] = () -> {
+            int requestId = ++loadRequest[0];
+            boolean includeSystem = showSystemApps;
             loadStatus.setVisibility(View.GONE);
             loadStatus.setOnClickListener(null);
-            loadInstalledAppsAsync(loaded -> {
+            loadInstalledAppsAsync(includeSystem, loaded -> {
                 // A previous screen must not update the current settings draft.
-                if (generation != appsSettingsGeneration || currentPage != PAGE_SETTINGS
+                if (requestId != loadRequest[0] || generation != appsSettingsGeneration
+                        || currentPage != PAGE_SETTINGS
                         || !settingsDetailOpen || settingsSubTab != SETTINGS_APPS) return;
 
                 if (loaded == null) {
@@ -3047,6 +3067,16 @@ public final class MainActivity extends Activity {
                 appAdapter.setLoadedApps(loaded);
             });
         };
+
+        systemAppsSwitch.setOnCheckedChangeListener((button, checked) -> {
+            tap(button);
+            showSystemApps = checked;
+            // This is a display preference; VPN app selections are saved separately.
+            appFilterPrefs.edit().putBoolean("show_system_apps", checked).apply();
+            requestApps[0].run();
+        });
+        systemAppsRow.setOnClickListener(v ->
+                systemAppsSwitch.setChecked(!systemAppsSwitch.isChecked()));
 
         appListView.setAdapter(appAdapter);
         section.addView(appListView, new LinearLayout.LayoutParams(
@@ -3391,51 +3421,74 @@ public final class MainActivity extends Activity {
         return button;
     }
 
-    private void loadInstalledAppsAsync(Consumer<List<AppEntry>> onLoaded) {
+    private List<AppEntry> getInstalledAppsCache(boolean includeSystem) {
+        return includeSystem ? allInstalledAppsCache : installedAppsCache;
+    }
+
+    private void loadInstalledAppsAsync(boolean includeSystem, Consumer<List<AppEntry>> onLoaded) {
         // Cache, callbacks and adapter updates are accessed only on the UI thread.
-        if (installedAppsCache != null) {
-            onLoaded.accept(installedAppsCache);
+        List<AppEntry> cached = getInstalledAppsCache(includeSystem);
+        if (cached != null) {
+            onLoaded.accept(cached);
             return;
         }
-        installedAppsCallbacks.add(onLoaded);
-        if (installedAppsLoading) return;
-        installedAppsLoading = true;
+        List<Consumer<List<AppEntry>>> pending = includeSystem
+                ? allInstalledAppsCallbacks : installedAppsCallbacks;
+        pending.add(onLoaded);
+        if (includeSystem ? allInstalledAppsLoading : installedAppsLoading) return;
+        if (includeSystem) allInstalledAppsLoading = true;
+        else installedAppsLoading = true;
 
         new Thread(() -> {
             List<AppEntry> result;
             try {
-                // Package queries, labels and icons can take hundreds of milliseconds.
-                result = loadInstalledApps();
+                // Package queries, labels and icons stay off the UI thread.
+                result = loadInstalledApps(includeSystem);
             } catch (RuntimeException error) {
                 android.util.Log.w("OpenFlux", "Failed to load installed apps", error);
                 result = null;
             }
             List<AppEntry> loaded = result;
             handler.post(() -> {
-                installedAppsLoading = false;
-                if (loaded != null) installedAppsCache = loaded;
-                List<Consumer<List<AppEntry>>> callbacks =
-                        new ArrayList<>(installedAppsCallbacks);
-                installedAppsCallbacks.clear();
+                if (includeSystem) {
+                    allInstalledAppsLoading = false;
+                    if (loaded != null) allInstalledAppsCache = loaded;
+                } else {
+                    installedAppsLoading = false;
+                    if (loaded != null) installedAppsCache = loaded;
+                }
+                List<Consumer<List<AppEntry>>> callbacks = new ArrayList<>(pending);
+                pending.clear();
                 if (isFinishing() || isDestroyed()) return;
                 for (Consumer<List<AppEntry>> callback : callbacks) callback.accept(loaded);
             });
-        }, "load-installed-apps").start();
+        }, includeSystem ? "load-all-installed-apps" : "load-launcher-apps").start();
     }
 
-    private List<AppEntry> loadInstalledApps() {
+    private List<AppEntry> loadInstalledApps(boolean includeSystem) {
+        PackageManager packageManager = getPackageManager();
         Intent launcherIntent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> resolved = getPackageManager().queryIntentActivities(launcherIntent, 0);
+        List<ResolveInfo> resolved = packageManager.queryIntentActivities(launcherIntent, 0);
         LinkedHashMap<String, AppEntry> byPackage = new LinkedHashMap<>();
         for (ResolveInfo info : resolved) {
             String packageName = info.activityInfo.packageName;
             if (packageName.equals(getPackageName()) || byPackage.containsKey(packageName)) continue;
-            String label = info.loadLabel(getPackageManager()).toString();
-            Drawable icon = info.loadIcon(getPackageManager());
+            String label = info.loadLabel(packageManager).toString();
+            Drawable icon = info.loadIcon(packageManager);
             byPackage.put(packageName, new AppEntry(packageName, label, icon));
         }
-        List<AppEntry> apps = new ArrayList<>(byPackage.values());
-        return apps;
+        if (includeSystem) {
+            // Include packages without launcher activities, such as system services.
+            // Existing launcher names and icons remain consistent between both lists.
+            for (ApplicationInfo info : packageManager.getInstalledApplications(0)) {
+                String packageName = info.packageName;
+                if (packageName.equals(getPackageName()) || byPackage.containsKey(packageName)) continue;
+                String label = info.loadLabel(packageManager).toString();
+                Drawable icon = info.loadIcon(packageManager);
+                byPackage.put(packageName, new AppEntry(packageName, label, icon));
+            }
+        }
+        return new ArrayList<>(byPackage.values());
     }
 
     private void persistAppFilter() {
@@ -3528,14 +3581,32 @@ public final class MainActivity extends Activity {
         }
 
         void setLoadedApps(List<AppEntry> loaded) {
-            int oldVisibleCount = appsVisible ? apps.size() : 0;
+            List<AppEntry> previous = new ArrayList<>(apps);
             apps.clear();
             apps.addAll(loaded);
             assignItemIds();
             sortApps();
+            if (!appsVisible) return;
 
-            if (oldVisibleCount > 0) notifyItemRangeRemoved(1, oldVisibleCount);
-            if (appsVisible && !apps.isEmpty()) notifyItemRangeInserted(1, apps.size());
+            // Keep existing rows instead of removing and reinserting the entire list.
+            // Include the permanent header in the diff's adapter positions.
+            DiffUtil.calculateDiff(new DiffUtil.Callback() {
+                @Override public int getOldListSize() { return previous.size() + 1; }
+                @Override public int getNewListSize() { return apps.size() + 1; }
+
+                @Override public boolean areItemsTheSame(int oldPosition, int newPosition) {
+                    if (oldPosition == 0 || newPosition == 0) return oldPosition == newPosition;
+                    return previous.get(oldPosition - 1).packageName
+                            .equals(apps.get(newPosition - 1).packageName);
+                }
+
+                @Override public boolean areContentsTheSame(int oldPosition, int newPosition) {
+                    if (oldPosition == 0 || newPosition == 0) return oldPosition == newPosition;
+                    AppEntry oldEntry = previous.get(oldPosition - 1);
+                    AppEntry newEntry = apps.get(newPosition - 1);
+                    return oldEntry.label.equals(newEntry.label) && oldEntry.icon == newEntry.icon;
+                }
+            }).dispatchUpdatesTo(this);
         }
 
         private void sortApps() {
@@ -3605,7 +3676,7 @@ public final class MainActivity extends Activity {
         }
 
         private void updateSelection(AppEntry entry, boolean checked) {
-            int oldPosition = apps.indexOf(entry);
+            int oldPosition = findAppPosition(entry.packageName);
             if (oldPosition < 0) return;
 
             boolean changed = checked
@@ -3614,12 +3685,20 @@ public final class MainActivity extends Activity {
             if (!changed) return;
 
             sortApps();
-            int newPosition = apps.indexOf(entry);
+            int newPosition = findAppPosition(entry.packageName);
             if (appsVisible && oldPosition != newPosition) {
                 // Only this package moved; RecyclerView animates affected rows.
                 // Offset by one because the header is also an adapter item.
                 notifyItemMoved(oldPosition + 1, newPosition + 1);
             }
+        }
+
+        private int findAppPosition(String packageName) {
+            // Bound rows may still reference entries from the previous cached list.
+            for (int i = 0; i < apps.size(); i++) {
+                if (apps.get(i).packageName.equals(packageName)) return i;
+            }
+            return -1;
         }
 
         @Override public void onViewRecycled(AppPickerViewHolder viewHolder) {
@@ -3713,6 +3792,7 @@ public final class MainActivity extends Activity {
         copy.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, -2, 1f);
         copyParams.leftMargin = dp(12);
+        copyParams.rightMargin = dp(12);
         copy.addView(text(titleValue, 14, text, false));
         copy.addView(text(detailValue, 11, secondary, false));
         row.addView(copy, copyParams);
