@@ -405,8 +405,11 @@ public final class OpenFluxTunnelService extends VpnService {
     private void writeIncomingPackets(int session, FileOutputStream output) {
         try {
             while (isCurrent(session)) {
-                byte[] packet = Mobile.read();
+                // Blocks until a packet arrives; polling read() with a 2ms sleep
+                // woke the CPU ~500 times a second and drained the battery.
+                byte[] packet = Mobile.readTimeout(1000);
                 if (packet == null || packet.length == 0) {
+                    // readTimeout returns at once before the core is started.
                     Thread.sleep(2);
                     continue;
                 }
