@@ -155,7 +155,10 @@ public final class NodeWizardActivity extends Activity {
             FrameLayout.LayoutParams scrimLayout = (FrameLayout.LayoutParams) scrim.getLayoutParams();
             scrimLayout.height = dp(126) + bottom;
             scrim.setLayoutParams(scrimLayout);
-            scroll.setPadding(0, 0, 0, dp(68 + 10 + 16) + bottom);
+            // On the page, not the scroll: a ScrollView counts its own padding
+            // as visible area, so it would refuse a short drag that starts on
+            // a field or a card.
+            page.setPadding(0, 0, 0, dp(68 + 10 + 16) + bottom);
             return insets;
         });
         setContentView(root);

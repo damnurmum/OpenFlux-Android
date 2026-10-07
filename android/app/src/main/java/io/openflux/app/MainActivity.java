@@ -1664,7 +1664,7 @@ public final class MainActivity extends Activity {
         View subTab = buildSettingsSubTabContent();
         // The pinned save button already clears the nav pill; the scroll
         // needs no room of its own for it.
-        if (showSave && subTab instanceof ScrollView) subTab.setPadding(0, 0, 0, dp(8));
+        if (showSave && subTab instanceof ScrollView) scrollBottom(subTab, dp(8));
         page.addView(subTab, contentParams);
 
         if (showSave) {
@@ -1740,10 +1740,11 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
-        scroll.setPadding(0, 0, 0, navClearance());
         scroll.setVerticalScrollBarEnabled(false);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
+        // Inside the list, not on the scroll: see scrollBottom.
+        list.setPadding(0, 0, 0, navClearance());
         list.addView(settingsListRow(R.drawable.ic_swap, "Режим работы",
                 modeLabel(connectionMode), SETTINGS_MODE));
         list.addView(settingsListRow(R.drawable.ic_public, "Сеть",
@@ -2247,10 +2248,19 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
-        scroll.setPadding(0, 0, 0, navClearance());
         scroll.setVerticalScrollBarEnabled(false);
         scroll.addView(sectionContent, new ScrollView.LayoutParams(-1, -2));
+        scrollBottom(scroll, navClearance());
         return scroll;
+    }
+
+    // The room under a scroll's content goes inside the content, not on the
+    // ScrollView: a ScrollView counts its own padding as visible area when it
+    // decides whether it can scroll, so with less overflow than the padding a
+    // drag that starts on a button or a field would not move it.
+    private static void scrollBottom(View scroll, int bottom) {
+        View content = ((ScrollView) scroll).getChildAt(0);
+        content.setPadding(content.getPaddingLeft(), content.getPaddingTop(), content.getPaddingRight(), bottom);
     }
 
     // Content now scrolls behind the floating nav pill (for the fade effect
@@ -2268,7 +2278,7 @@ public final class MainActivity extends Activity {
             editorParams.topMargin = dp(16);
             View editor = wrapScroll(buildProfileEditor());
             // The save button is pinned below instead, above the nav pill.
-            editor.setPadding(0, 0, 0, dp(8));
+            scrollBottom(editor, dp(8));
             page.addView(editor, editorParams);
             Button save = primaryButton("Сохранить профиль", () -> saveProfileFromEditor(
                     profileNameInput.getText().toString().trim(),
