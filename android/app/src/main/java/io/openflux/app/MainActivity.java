@@ -587,7 +587,10 @@ public final class MainActivity extends Activity {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(side, top, side, 0);
-        body.addView(buildCompactHeader(), new LinearLayout.LayoutParams(-1, dp(54)));
+        body.addView(buildCompactHeader(), new LinearLayout.LayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        )));
 
         content = new FrameLayout(this);
         LinearLayout.LayoutParams contentParams = new LinearLayout.LayoutParams(-1, 0, 1f);
@@ -665,6 +668,8 @@ public final class MainActivity extends Activity {
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setMinimumHeight(dp(54));
+        header.setPadding(0, dp(5), 0, dp(5));
 
         ImageView logo = new ImageView(this);
         logo.setContentDescription("Логотип OpenFlux");
