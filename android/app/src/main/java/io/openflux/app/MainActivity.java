@@ -587,10 +587,7 @@ public final class MainActivity extends Activity {
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(side, top, side, 0);
-        body.addView(buildCompactHeader(), new LinearLayout.LayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        )));
+        body.addView(buildCompactHeader(), new LinearLayout.LayoutParams(-1, -2));
 
         content = new FrameLayout(this);
         LinearLayout.LayoutParams contentParams = new LinearLayout.LayoutParams(-1, 0, 1f);
