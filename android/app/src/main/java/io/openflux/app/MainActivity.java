@@ -53,7 +53,6 @@ import android.view.animation.DecelerateInterpolator;
 import android.view.animation.LinearInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
@@ -3276,10 +3275,13 @@ public final class MainActivity extends Activity {
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         searchInput.setSingleLine(true);
         searchInput.setContentDescription("Поиск приложений по названию или имени пакета");
-        searchInput.setPadding(dp(14), 0, 0, 0);
+        searchInput.setPadding(dp(10), 0, 0, 0);
+        LinearLayout.LayoutParams searchIconParams = new LinearLayout.LayoutParams(dp(20), dp(20));
+        searchIconParams.leftMargin = dp(14);
+        searchRow.addView(icon(R.drawable.ic_search, this.hint), searchIconParams);
         searchInput.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
         searchRow.addView(searchInput, new LinearLayout.LayoutParams(0, -1, 1f));
-        ImageButton clearSearch = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
+        ImageButton clearSearch = iconButton(R.drawable.ic_close,
                 "Очистить поиск");
         clearSearch.setVisibility(View.INVISIBLE);
         clearSearch.setOnClickListener(v -> {
@@ -3342,8 +3344,6 @@ public final class MainActivity extends Activity {
             if (focused) requestSearchAlignment.run();
             else appListView.removeCallbacks(alignSearch);
         });
-        searchInput.setOnFocusChangeListener((view, focused) ->
-                updateSearchSpacer.run());
 
         appListView.addOnLayoutChangeListener((view, left, top, right, bottom,
                                                oldLeft, oldTop, oldRight, oldBottom) -> {
@@ -3354,6 +3354,8 @@ public final class MainActivity extends Activity {
             appListView.post(() -> {
                 if (!appListView.isAttachedToWindow()) return;
                 updateSearchSpacer.run();
+                // The keyboard opens after the field takes focus: align once it has.
+                if (searchInput.hasFocus()) requestSearchAlignment.run();
             });
         });
 
@@ -3363,6 +3365,8 @@ public final class MainActivity extends Activity {
                 AppFilter.MODE_BLACKLIST
         };
 
+        // Like the search, the system-apps switch only matters with a list to pick from.
+        View[] systemAppsHolder = new View[1];
         View filterChoice = choiceList(new String[][]{
                         {"Все приложения"},
                         {"Только выбранные", "Белый список"},
@@ -3376,6 +3380,7 @@ public final class MainActivity extends Activity {
                     appAdapter.setAppsVisible(
                             !AppFilter.MODE_OFF.equals(editorAppFilterMode));
                     boolean visible = !AppFilter.MODE_OFF.equals(editorAppFilterMode);
+                    if (systemAppsHolder[0] != null) setViewVisibleAnimated(systemAppsHolder[0], visible);
                     searchRow.animate().cancel();
 
                     if (visible) {
@@ -3412,6 +3417,8 @@ public final class MainActivity extends Activity {
                 "Показать системные приложения",
                 "Включая приложения без значка в меню", showSystemApps);
         View systemAppsRow = (View) systemAppsSwitch.getTag();
+        systemAppsHolder[0] = systemAppsRow;
+        systemAppsRow.setVisibility(AppFilter.MODE_OFF.equals(editorAppFilterMode) ? View.GONE : View.VISIBLE);
         LinearLayout.LayoutParams systemAppsParams = matchWrap();
         systemAppsParams.topMargin = dp(12);
         header.addView(systemAppsRow, systemAppsParams);
@@ -3889,30 +3896,52 @@ public final class MainActivity extends Activity {
                 .apply();
     }
 
+    // An app in the picker: a selection tile like choiceList's rows, with a
+    // round mark (an empty ring until picked, since several can be).
     private View buildAppRow() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(10), dp(8), dp(10), dp(8));
-        row.setBackground(ripple(Color.TRANSPARENT, 8));
+        row.setMinimumHeight(dp(60));
+        row.setPadding(dp(14), dp(10), dp(16), dp(10));
         ImageView icon = new ImageView(this);
-        row.addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        row.addView(icon, new LinearLayout.LayoutParams(dp(40), dp(40)));
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
-        TextView labelView = text("", 14, text, false);
+        TextView labelView = text("", 15, text, true);
         labels.addView(labelView, new LinearLayout.LayoutParams(-1, -2));
         TextView packageView = text("", 12, secondary, false);
-        LinearLayout.LayoutParams packageParams = new LinearLayout.LayoutParams(-1, -2);
-        packageParams.topMargin = dp(2);
-        labels.addView(packageView, packageParams);
+        labels.addView(packageView, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, -2, 1f);
-        labelParams.leftMargin = dp(12);
+        labelParams.leftMargin = dp(14);
         labelParams.rightMargin = dp(12);
         row.addView(labels, labelParams);
-        CheckBox checkBox = new CheckBox(this);
-        checkBox.setButtonTintList(ColorStateList.valueOf(accent));
-        row.addView(checkBox, new LinearLayout.LayoutParams(-2, -2));
+        ImageView mark = new ImageView(this);
+        mark.setPadding(dp(3), dp(3), dp(3), dp(3));
+        row.addView(mark, new LinearLayout.LayoutParams(dp(24), dp(24)));
         return row;
+    }
+
+    // Paints an app row for its place in the list (the group's ends are
+    // rounder, as in choiceList) and whether it is picked.
+    private void paintAppRow(View row, AppRowHolder holder, int index, int count, boolean on) {
+        float top = dp(index == 0 ? 20 : 6), bottom = dp(index == count - 1 ? 20 : 6);
+        row.setBackground(tile(on ? tonal(0.18f) : surface, on ? tonal(0.45f) : border,
+                new float[]{top, top, top, top, bottom, bottom, bottom, bottom}));
+        holder.label.setTextColor(on ? accent : text);
+        GradientDrawable dot = new GradientDrawable();
+        dot.setShape(GradientDrawable.OVAL);
+        if (on) dot.setColor(accent);
+        else dot.setStroke(dp(2), hint);
+        holder.mark.setBackground(dot);
+        holder.mark.setImageResource(on ? R.drawable.ic_check : 0);
+        holder.mark.setImageTintList(ColorStateList.valueOf(Color.WHITE));
+        RecyclerView.LayoutParams params = (RecyclerView.LayoutParams) row.getLayoutParams();
+        int gap = index == 0 ? dp(12) : dp(2);
+        if (params != null && params.topMargin != gap) {
+            params.topMargin = gap;
+            row.setLayoutParams(params);
+        }
     }
 
     private static final class AppEntry {
@@ -3931,7 +3960,7 @@ public final class MainActivity extends Activity {
         final ImageView icon;
         final TextView label;
         final TextView packageName;
-        final CheckBox checkBox;
+        final ImageView mark;
 
         AppRowHolder(View row) {
             LinearLayout layout = (LinearLayout) row;
@@ -3939,7 +3968,7 @@ public final class MainActivity extends Activity {
             LinearLayout labels = (LinearLayout) layout.getChildAt(1);
             label = (TextView) labels.getChildAt(0);
             packageName = (TextView) labels.getChildAt(1);
-            checkBox = (CheckBox) layout.getChildAt(2);
+            mark = (ImageView) layout.getChildAt(2);
         }
     }
 
@@ -3956,6 +3985,7 @@ public final class MainActivity extends Activity {
         private static final int TYPE_HEADER = 0;
         private static final int TYPE_APP = 1;
         private static final int TYPE_SPACER = 2;
+        private static final String PAINT = "paint";
 
         private final List<AppEntry> apps;
         private final List<AppEntry> visibleApps = new ArrayList<>();
@@ -4123,15 +4153,25 @@ public final class MainActivity extends Activity {
             holder.icon.setImageDrawable(entry.icon);
             holder.label.setText(entry.label);
             holder.packageName.setText(entry.packageName);
-            holder.checkBox.setOnCheckedChangeListener(null);
-            holder.checkBox.setChecked(editorSelectedApps.contains(entry.packageName));
-            holder.checkBox.setOnCheckedChangeListener((button, checked) -> {
+            paintAppRow(viewHolder.itemView, holder, position - 1, visibleApps.size(),
+                    editorSelectedApps.contains(entry.packageName));
+            viewHolder.itemView.setOnClickListener(v -> {
                 if (viewHolder.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
-                tap(button);
-                updateSelection(entry, checked);
+                tap(v);
+                updateSelection(entry, !editorSelectedApps.contains(entry.packageName));
             });
-            viewHolder.itemView.setOnClickListener(v ->
-                    holder.checkBox.setChecked(!holder.checkBox.isChecked()));
+        }
+
+        // A pick changes a row's look and, once it moves, which rows end the
+        // group: repaint the rows without rebinding them.
+        @Override public void onBindViewHolder(AppPickerViewHolder viewHolder, int position, List<Object> payloads) {
+            if (!payloads.contains(PAINT) || viewHolder.appRow == null) {
+                super.onBindViewHolder(viewHolder, position, payloads);
+                return;
+            }
+            AppEntry entry = visibleApps.get(position - 1);
+            paintAppRow(viewHolder.itemView, viewHolder.appRow, position - 1, visibleApps.size(),
+                    editorSelectedApps.contains(entry.packageName));
         }
 
         private void updateSelection(AppEntry entry, boolean checked) {
@@ -4151,6 +4191,7 @@ public final class MainActivity extends Activity {
                 // Offset by one because the header is also an adapter item.
                 notifyItemMoved(oldPosition + 1, newPosition + 1);
             }
+            if (appsVisible) notifyItemRangeChanged(1, visibleApps.size(), PAINT);
         }
 
         private int findAppPosition(String packageName) {
@@ -4162,10 +4203,7 @@ public final class MainActivity extends Activity {
         }
 
         @Override public void onViewRecycled(AppPickerViewHolder viewHolder) {
-            if (viewHolder.appRow != null) {
-                viewHolder.appRow.checkBox.setOnCheckedChangeListener(null);
-                viewHolder.itemView.setOnClickListener(null);
-            }
+            if (viewHolder.appRow != null) viewHolder.itemView.setOnClickListener(null);
             super.onViewRecycled(viewHolder);
         }
     }
