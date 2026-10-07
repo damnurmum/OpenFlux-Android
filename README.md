@@ -57,6 +57,10 @@ Android tunnel or SOCKS5 client -> encrypted document transport -> Linux exit no
   (upstream's `deploy/phpbox`), reached over one Cups.online room or Mail.ru
   document, with no key and no Session; only TCP on ports 80 and 443 goes
   through it, other UDP and IPv6 are dropped in the full tunnel;
+- experimental JS transports (Settings -> JS-транспорты): signed scripts run
+  by the core next to the built-in transports in a Session; OpenFlux's own
+  ship with the app, others import by link or file after their author's
+  key is checked, and update or roll back in place;
 - five pluggable transports - Yandex.Docs, Yandex Volga, Mail.ru Docs,
   Cups.online and MAX/OneMe - plus a choice of wire codec (batched+zstd, the
   default, or legacy per-packet LZ4 for compatibility with older exit nodes);
