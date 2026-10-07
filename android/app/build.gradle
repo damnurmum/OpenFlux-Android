@@ -74,6 +74,7 @@ def bundledScripts = tasks.register("bundledScripts", Copy) {
 tasks.named("preBuild") { dependsOn bundledScripts }
 
 dependencies {
+    implementation "androidx.recyclerview:recyclerview:1.4.0"
     implementation files("libs/openflux.aar")
     implementation "com.google.zxing:core:3.5.3"
     // Camera scanner for openflux:// QR codes.

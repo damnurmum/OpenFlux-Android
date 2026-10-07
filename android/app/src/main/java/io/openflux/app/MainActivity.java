@@ -13,6 +13,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -51,7 +52,6 @@ import android.view.Window;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.LinearInterpolator;
 import android.view.animation.OvershootInterpolator;
-import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -60,7 +60,6 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ListView;
 import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.Switch;
@@ -89,6 +88,11 @@ import java.util.function.Consumer;
 import java.util.WeakHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import androidx.recyclerview.widget.DefaultItemAnimator;
+import androidx.recyclerview.widget.DiffUtil;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
@@ -290,6 +294,13 @@ public final class MainActivity extends Activity {
     private final LinkedHashSet<String> editorEnabledDomainPresets = new LinkedHashSet<>();
     private EditText customDomainsInput;
     private List<AppEntry> installedAppsCache;
+    private List<AppEntry> allInstalledAppsCache;
+    private boolean showSystemApps;
+    private boolean allInstalledAppsLoading;
+    private final List<Consumer<List<AppEntry>>> allInstalledAppsCallbacks = new ArrayList<>();
+    private boolean installedAppsLoading;
+    private int appsSettingsGeneration;
+    private final List<Consumer<List<AppEntry>>> installedAppsCallbacks = new ArrayList<>();
 
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
@@ -332,6 +343,7 @@ public final class MainActivity extends Activity {
                 : isSystemDark();
         appFilterPrefs = getSharedPreferences(AppFilter.PREFS_NAME, MODE_PRIVATE);
         appFilterMode = appFilterPrefs.getString(AppFilter.KEY_MODE, AppFilter.MODE_OFF);
+        showSystemApps = appFilterPrefs.getBoolean("show_system_apps", false);
         selectedApps.addAll(appFilterPrefs.getStringSet(AppFilter.KEY_PACKAGES, Collections.emptySet()));
         domainFilterPrefs = getSharedPreferences(DomainFilter.PREFS_NAME, MODE_PRIVATE);
         enabledDomainPresets.addAll(DomainFilter.loadEnabledPresets(domainFilterPrefs));
@@ -3226,44 +3238,242 @@ public final class MainActivity extends Activity {
 
     private View buildAppsSettings() {
         LinearLayout section = page();
+
+        RecyclerView appListView = new RecyclerView(this);
+        appListView.setLayoutManager(new LinearLayoutManager(this));
+        appListView.setClipToPadding(false);
+        appListView.setPadding(0, 0, 0, dp(8));
+        appListView.setVerticalScrollBarEnabled(false);
+
+        DefaultItemAnimator animator = new DefaultItemAnimator();
+        animator.setMoveDuration(280);
+        animator.setAddDuration(160);
+        animator.setRemoveDuration(160);
+        animator.setSupportsChangeAnimations(false);
+        appListView.setItemAnimator(animator);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.VERTICAL);
+
         TextView hint = text(
                 "Выберите, какие приложения используют туннель. По умолчанию - все приложения, кроме OpenFlux. "
                         + "Действует только в режиме туннеля - в режиме прокси приложения подключаются к SOCKS5 сами.",
                 12, secondary, false);
-        section.addView(hint, matchWrap());
+        header.addView(hint, matchWrap());
 
-        String[] filterModes = {AppFilter.MODE_OFF, AppFilter.MODE_WHITELIST, AppFilter.MODE_BLACKLIST};
-        Runnable[] onFilterChanged = new Runnable[1];
-        View filterChoice = choiceList(new String[][]{
-                {"Все приложения"},
-                {"Только выбранные", "Белый список"},
-                {"Все, кроме выбранных", "Чёрный список"},
-        }, null, Math.max(0, java.util.Arrays.asList(filterModes).indexOf(editorAppFilterMode)), i -> {
-            editorAppFilterMode = filterModes[i];
-            onFilterChanged[0].run();
+        int generation = ++appsSettingsGeneration;
+        List<AppEntry> cachedApps = getInstalledAppsCache(showSystemApps);
+        boolean loadingNeeded = cachedApps == null;
+        View searchSpacer = new View(this);
+        AppListAdapter appAdapter = new AppListAdapter(
+                loadingNeeded ? Collections.emptyList() : cachedApps, header,
+                !AppFilter.MODE_OFF.equals(editorAppFilterMode), searchSpacer);
+
+        LinearLayout searchRow = new LinearLayout(this);
+        searchRow.setGravity(Gravity.CENTER_VERTICAL);
+        searchRow.setBackground(rounded(surface, border, 1, 10));
+        EditText searchInput = settingInput("Поиск по названию или пакету", "",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        searchInput.setSingleLine(true);
+        searchInput.setContentDescription("Поиск приложений по названию или имени пакета");
+        searchInput.setPadding(dp(14), 0, 0, 0);
+        searchInput.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);
+        searchRow.addView(searchInput, new LinearLayout.LayoutParams(0, -1, 1f));
+        ImageButton clearSearch = iconButton(android.R.drawable.ic_menu_close_clear_cancel,
+                "Очистить поиск");
+        clearSearch.setVisibility(View.INVISIBLE);
+        clearSearch.setOnClickListener(v -> {
+            tap(v);
+            searchInput.setText("");
         });
+        searchRow.addView(clearSearch, new LinearLayout.LayoutParams(dp(48), -1));
+
+        TextView emptyResults = text("Ничего не найдено", 12, secondary, false);
+        emptyResults.setVisibility(View.GONE);
+        Runnable updateSearchSpacer = () -> {
+            boolean searching = !AppFilter.MODE_OFF.equals(editorAppFilterMode)
+                    && ((keyboardOpen && searchInput.hasFocus())
+                    || !searchInput.getText().toString().trim().isEmpty());
+            int height = searching ? Math.max(0, appListView.getHeight()
+                    - appListView.getPaddingTop() - appListView.getPaddingBottom()
+                    - searchRow.getHeight() - header.getPaddingBottom()) : 0;
+            appAdapter.setSearchSpacerHeight(height);
+        };
+        Runnable updateSearchState = () -> {
+            clearSearch.setVisibility(searchInput.length() == 0 ? View.INVISIBLE : View.VISIBLE);
+            boolean noResults = !AppFilter.MODE_OFF.equals(editorAppFilterMode)
+                    && getInstalledAppsCache(showSystemApps) != null
+                    && !searchInput.getText().toString().trim().isEmpty()
+                    && appAdapter.getVisibleAppsCount() == 0;
+            emptyResults.setVisibility(noResults ? View.VISIBLE : View.GONE);
+            updateSearchSpacer.run();
+        };
+        bindText(searchInput, query -> {
+            appAdapter.setSearchQuery(query);
+            updateSearchState.run();
+        });
+        searchInput.setOnEditorActionListener((view, actionId, event) -> {
+            if (actionId != android.view.inputmethod.EditorInfo.IME_ACTION_DONE) return false;
+            android.view.inputmethod.InputMethodManager keyboard =
+                    (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+            if (keyboard != null) keyboard.hideSoftInputFromWindow(searchInput.getWindowToken(), 0);
+            searchInput.clearFocus();
+            return true;
+        });
+        searchRow.setVisibility(AppFilter.MODE_OFF.equals(editorAppFilterMode) ? View.GONE : View.VISIBLE);
+
+        Runnable alignSearch = () -> {
+            if (!keyboardOpen || !searchInput.hasFocus() || !appListView.isAttachedToWindow()
+                    || searchRow.getVisibility() != View.VISIBLE || searchRow.getHeight() == 0) return;
+            // The search field is nested in the header; measure its current top in list coordinates.
+            int distance = header.getTop() + searchRow.getTop()
+                    - appListView.getPaddingTop() - dp(6);
+            if (Math.abs(distance) <= dp(1)) return;
+            appListView.smoothScrollBy(0, distance,
+                    new android.view.animation.AccelerateDecelerateInterpolator(), 300);
+        };
+        Runnable requestSearchAlignment = () -> {
+            appListView.removeCallbacks(alignSearch);
+            // Run after layout, when the keyboard's insets and header measurements are applied.
+            appListView.post(alignSearch);
+        };
+        searchInput.setOnFocusChangeListener((view, focused) -> {
+            updateSearchSpacer.run();
+            if (focused) requestSearchAlignment.run();
+            else appListView.removeCallbacks(alignSearch);
+        });
+        searchInput.setOnFocusChangeListener((view, focused) ->
+                updateSearchSpacer.run());
+
+        appListView.addOnLayoutChangeListener((view, left, top, right, bottom,
+                                               oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (bottom - top == oldBottom - oldTop
+                    && right - left == oldRight - oldLeft) return;
+
+            // Update after layout, outside RecyclerView's layout calculation.
+            appListView.post(() -> {
+                if (!appListView.isAttachedToWindow()) return;
+                updateSearchSpacer.run();
+            });
+        });
+
+        String[] filterModes = {
+                AppFilter.MODE_OFF,
+                AppFilter.MODE_WHITELIST,
+                AppFilter.MODE_BLACKLIST
+        };
+
+        View filterChoice = choiceList(new String[][]{
+                        {"Все приложения"},
+                        {"Только выбранные", "Белый список"},
+                        {"Все, кроме выбранных", "Чёрный список"},
+                }, null,
+                Math.max(0,
+                        java.util.Arrays.asList(filterModes)
+                                .indexOf(editorAppFilterMode)),
+                i -> {
+                    editorAppFilterMode = filterModes[i];
+                    appAdapter.setAppsVisible(
+                            !AppFilter.MODE_OFF.equals(editorAppFilterMode));
+                    boolean visible = !AppFilter.MODE_OFF.equals(editorAppFilterMode);
+                    searchRow.animate().cancel();
+
+                    if (visible) {
+                        searchRow.setAlpha(1f);
+                        searchRow.setVisibility(View.VISIBLE);
+                    } else {
+                        RecyclerView.ItemAnimator listAnimator  = appListView.getItemAnimator();
+                        long duration = listAnimator  != null ? listAnimator.getRemoveDuration() : 0L;
+
+                        searchRow.animate()
+                                .alpha(0f)
+                                .setDuration(duration)
+                                .withEndAction(() -> {
+                                    if (AppFilter.MODE_OFF.equals(editorAppFilterMode)) {
+                                        searchRow.setVisibility(View.GONE);
+                                    }
+                                })
+                                .start();
+                    }
+                    if (!visible) {
+                        android.view.inputmethod.InputMethodManager keyboard =
+                                (android.view.inputmethod.InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+                        if (keyboard != null) keyboard.hideSoftInputFromWindow(searchInput.getWindowToken(), 0);
+                        searchInput.clearFocus();
+                    }
+                    updateSearchState.run();
+                });
+
         LinearLayout.LayoutParams modeGroupParams = matchWrap();
         modeGroupParams.topMargin = dp(12);
-        section.addView(filterChoice, modeGroupParams);
+        header.addView(filterChoice, modeGroupParams);
 
-        LinearLayout listContainer = new LinearLayout(this);
-        listContainer.setOrientation(LinearLayout.VERTICAL);
-        listContainer.setVisibility(AppFilter.MODE_OFF.equals(editorAppFilterMode) ? View.GONE : View.VISIBLE);
-        LinearLayout.LayoutParams listContainerParams = new LinearLayout.LayoutParams(-1, 0, 1f);
-        listContainerParams.topMargin = dp(14);
+        Switch systemAppsSwitch = settingSwitch(R.drawable.ic_apps,
+                "Показать системные приложения",
+                "Включая приложения без значка в меню", showSystemApps);
+        View systemAppsRow = (View) systemAppsSwitch.getTag();
+        LinearLayout.LayoutParams systemAppsParams = matchWrap();
+        systemAppsParams.topMargin = dp(12);
+        header.addView(systemAppsRow, systemAppsParams);
 
-        ListView appListView = new ListView(this);
-        appListView.setDivider(null);
-        appListView.setClipToPadding(false);
-        appListView.setPadding(0, 0, 0, dp(8));
-        appListView.setVerticalScrollBarEnabled(false);
-        appListView.setAdapter(new AppListAdapter(loadInstalledAppsCached()));
-        listContainer.addView(appListView, new LinearLayout.LayoutParams(-1, -1));
-        section.addView(listContainer, listContainerParams);
+        LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, dp(48));
+        searchParams.topMargin = dp(12);
+        header.addView(searchRow, searchParams);
+        LinearLayout.LayoutParams emptyParams = matchWrap();
+        emptyParams.topMargin = dp(12);
+        header.addView(emptyResults, emptyParams);
 
-        onFilterChanged[0] = () ->
-                setViewVisibleAnimated(listContainer, !AppFilter.MODE_OFF.equals(editorAppFilterMode));
+        TextView loadStatus = text("", 12, secondary, false);
+        loadStatus.setVisibility(View.GONE);
+        LinearLayout.LayoutParams statusParams = matchWrap();
+        statusParams.topMargin = dp(12);
+        header.addView(loadStatus, statusParams);
 
+        Runnable[] requestApps = new Runnable[1];
+        int[] loadRequest = {0};
+        requestApps[0] = () -> {
+            int requestId = ++loadRequest[0];
+            boolean includeSystem = showSystemApps;
+            emptyResults.setVisibility(View.GONE);
+            loadStatus.setVisibility(View.GONE);
+            loadStatus.setOnClickListener(null);
+            loadInstalledAppsAsync(includeSystem, loaded -> {
+                // A previous screen must not update the current settings draft.
+                if (requestId != loadRequest[0] || generation != appsSettingsGeneration
+                        || currentPage != PAGE_SETTINGS
+                        || !settingsDetailOpen || settingsSubTab != SETTINGS_APPS) return;
+
+                if (loaded == null) {
+                    loadStatus.setText("Не удалось загрузить приложения. Нажмите, чтобы повторить.");
+                    loadStatus.setVisibility(View.VISIBLE);
+                    loadStatus.setOnClickListener(v -> {
+                        tap(v);
+                        requestApps[0].run();
+                    });
+                    return;
+                }
+
+                loadStatus.setVisibility(View.GONE);
+                appAdapter.setLoadedApps(loaded);
+                updateSearchState.run();
+            });
+        };
+
+        systemAppsSwitch.setOnCheckedChangeListener((button, checked) -> {
+            tap(button);
+            showSystemApps = checked;
+            // This is a display preference; VPN app selections are saved separately.
+            appFilterPrefs.edit().putBoolean("show_system_apps", checked).apply();
+            requestApps[0].run();
+        });
+        systemAppsRow.setOnClickListener(v ->
+                systemAppsSwitch.setChecked(!systemAppsSwitch.isChecked()));
+
+        appListView.setAdapter(appAdapter);
+        section.addView(appListView, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        if (loadingNeeded) requestApps[0].run();
         return section;
     }
 
@@ -3602,25 +3812,74 @@ public final class MainActivity extends Activity {
         return button;
     }
 
-    private List<AppEntry> loadInstalledAppsCached() {
-        if (installedAppsCache == null) installedAppsCache = loadInstalledApps();
-        return installedAppsCache;
+    private List<AppEntry> getInstalledAppsCache(boolean includeSystem) {
+        return includeSystem ? allInstalledAppsCache : installedAppsCache;
     }
 
-    private List<AppEntry> loadInstalledApps() {
+    private void loadInstalledAppsAsync(boolean includeSystem, Consumer<List<AppEntry>> onLoaded) {
+        // Cache, callbacks and adapter updates are accessed only on the UI thread.
+        List<AppEntry> cached = getInstalledAppsCache(includeSystem);
+        if (cached != null) {
+            onLoaded.accept(cached);
+            return;
+        }
+        List<Consumer<List<AppEntry>>> pending = includeSystem
+                ? allInstalledAppsCallbacks : installedAppsCallbacks;
+        pending.add(onLoaded);
+        if (includeSystem ? allInstalledAppsLoading : installedAppsLoading) return;
+        if (includeSystem) allInstalledAppsLoading = true;
+        else installedAppsLoading = true;
+
+        new Thread(() -> {
+            List<AppEntry> result;
+            try {
+                // Package queries, labels and icons stay off the UI thread.
+                result = loadInstalledApps(includeSystem);
+            } catch (RuntimeException error) {
+                android.util.Log.w("OpenFlux", "Failed to load installed apps", error);
+                result = null;
+            }
+            List<AppEntry> loaded = result;
+            handler.post(() -> {
+                if (includeSystem) {
+                    allInstalledAppsLoading = false;
+                    if (loaded != null) allInstalledAppsCache = loaded;
+                } else {
+                    installedAppsLoading = false;
+                    if (loaded != null) installedAppsCache = loaded;
+                }
+                List<Consumer<List<AppEntry>>> callbacks = new ArrayList<>(pending);
+                pending.clear();
+                if (isFinishing() || isDestroyed()) return;
+                for (Consumer<List<AppEntry>> callback : callbacks) callback.accept(loaded);
+            });
+        }, includeSystem ? "load-all-installed-apps" : "load-launcher-apps").start();
+    }
+
+    private List<AppEntry> loadInstalledApps(boolean includeSystem) {
+        PackageManager packageManager = getPackageManager();
         Intent launcherIntent = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> resolved = getPackageManager().queryIntentActivities(launcherIntent, 0);
+        List<ResolveInfo> resolved = packageManager.queryIntentActivities(launcherIntent, 0);
         LinkedHashMap<String, AppEntry> byPackage = new LinkedHashMap<>();
         for (ResolveInfo info : resolved) {
             String packageName = info.activityInfo.packageName;
             if (packageName.equals(getPackageName()) || byPackage.containsKey(packageName)) continue;
-            String label = info.loadLabel(getPackageManager()).toString();
-            Drawable icon = info.loadIcon(getPackageManager());
+            String label = info.loadLabel(packageManager).toString();
+            Drawable icon = info.loadIcon(packageManager);
             byPackage.put(packageName, new AppEntry(packageName, label, icon));
         }
-        List<AppEntry> apps = new ArrayList<>(byPackage.values());
-        Collections.sort(apps, Comparator.comparing(entry -> entry.label.toLowerCase()));
-        return apps;
+        if (includeSystem) {
+            // Include packages without launcher activities, such as system services.
+            // Existing launcher names and icons remain consistent between both lists.
+            for (ApplicationInfo info : packageManager.getInstalledApplications(0)) {
+                String packageName = info.packageName;
+                if (packageName.equals(getPackageName()) || byPackage.containsKey(packageName)) continue;
+                String label = info.loadLabel(packageManager).toString();
+                Drawable icon = info.loadIcon(packageManager);
+                byPackage.put(packageName, new AppEntry(packageName, label, icon));
+            }
+        }
+        return new ArrayList<>(byPackage.values());
     }
 
     private void persistAppFilter() {
@@ -3638,10 +3897,18 @@ public final class MainActivity extends Activity {
         row.setBackground(ripple(Color.TRANSPARENT, 8));
         ImageView icon = new ImageView(this);
         row.addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
         TextView labelView = text("", 14, text, false);
+        labels.addView(labelView, new LinearLayout.LayoutParams(-1, -2));
+        TextView packageView = text("", 12, secondary, false);
+        LinearLayout.LayoutParams packageParams = new LinearLayout.LayoutParams(-1, -2);
+        packageParams.topMargin = dp(2);
+        labels.addView(packageView, packageParams);
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(0, -2, 1f);
         labelParams.leftMargin = dp(12);
-        row.addView(labelView, labelParams);
+        labelParams.rightMargin = dp(12);
+        row.addView(labels, labelParams);
         CheckBox checkBox = new CheckBox(this);
         checkBox.setButtonTintList(ColorStateList.valueOf(accent));
         row.addView(checkBox, new LinearLayout.LayoutParams(-2, -2));
@@ -3663,58 +3930,243 @@ public final class MainActivity extends Activity {
     private static final class AppRowHolder {
         final ImageView icon;
         final TextView label;
+        final TextView packageName;
         final CheckBox checkBox;
 
         AppRowHolder(View row) {
             LinearLayout layout = (LinearLayout) row;
             icon = (ImageView) layout.getChildAt(0);
-            label = (TextView) layout.getChildAt(1);
+            LinearLayout labels = (LinearLayout) layout.getChildAt(1);
+            label = (TextView) labels.getChildAt(0);
+            packageName = (TextView) labels.getChildAt(1);
             checkBox = (CheckBox) layout.getChildAt(2);
         }
     }
 
-    private final class AppListAdapter extends BaseAdapter {
+    private static final class AppPickerViewHolder extends RecyclerView.ViewHolder {
+        final AppRowHolder appRow;
+
+        AppPickerViewHolder(View view, boolean isAppRow) {
+            super(view);
+            appRow = isAppRow ? new AppRowHolder(view) : null;
+        }
+    }
+
+    private final class AppListAdapter extends RecyclerView.Adapter<AppPickerViewHolder> {
+        private static final int TYPE_HEADER = 0;
+        private static final int TYPE_APP = 1;
+        private static final int TYPE_SPACER = 2;
+
         private final List<AppEntry> apps;
+        private final List<AppEntry> visibleApps = new ArrayList<>();
+        private String searchQuery = "";
+        private final LinearLayout header;
+        private final View searchSpacer;
+        private int searchSpacerHeight;
+        private final LinkedHashMap<String, Long> itemIds = new LinkedHashMap<>();
+        private boolean appsVisible;
 
-        AppListAdapter(List<AppEntry> apps) {
-            this.apps = apps;
+        AppListAdapter(List<AppEntry> apps, LinearLayout header, boolean appsVisible, View searchSpacer) {
+            // Keep the installed-app cache independent of this screen's ordering.
+            this.apps = new ArrayList<>(apps);
+            this.header = header;
+            this.searchSpacer = searchSpacer;
+            this.appsVisible = appsVisible;
+            header.setPadding(0, 0, 0, dp(14));
+
+            assignItemIds();
+            setHasStableIds(true);
+            sortApps();
+            rebuildVisibleApps();
         }
 
-        @Override public int getCount() {
-            return apps.size();
+        void setSearchSpacerHeight(int height) {
+            height = Math.max(0, height);
+            if (searchSpacerHeight == height) return;
+            searchSpacerHeight = height;
+            // Keep enough scroll range for a short result list without adding fake applications.
+            ViewGroup.LayoutParams params = searchSpacer.getLayoutParams();
+            if (params != null) {
+                params.height = height;
+                searchSpacer.setLayoutParams(params);
+            }
         }
 
-        @Override public Object getItem(int position) {
-            return apps.get(position);
+        private void assignItemIds() {
+            // Keep package IDs stable even if the backing list is replaced.
+            for (AppEntry entry : apps) {
+                if (!itemIds.containsKey(entry.packageName)) {
+                    itemIds.put(entry.packageName, (long) itemIds.size() + 1);
+                }
+            }
+        }
+
+        void setLoadedApps(List<AppEntry> loaded) {
+            List<AppEntry> previous = new ArrayList<>(visibleApps);
+            apps.clear();
+            apps.addAll(loaded);
+            assignItemIds();
+            sortApps();
+            rebuildVisibleApps();
+            if (appsVisible) dispatchAppDiff(previous);
+        }
+
+        void setSearchQuery(String query) {
+            String normalized = query.trim().toLowerCase(java.util.Locale.ROOT);
+            if (searchQuery.equals(normalized)) return;
+            List<AppEntry> previous = new ArrayList<>(visibleApps);
+            searchQuery = normalized;
+            rebuildVisibleApps();
+            if (appsVisible) dispatchAppDiff(previous);
+        }
+
+        int getVisibleAppsCount() {
+            return visibleApps.size();
+        }
+
+        private void rebuildVisibleApps() {
+            // Filtering changes only the displayed list, never the selected package set.
+            visibleApps.clear();
+            for (AppEntry entry : apps) {
+                if (searchQuery.isEmpty()
+                        || entry.label.toLowerCase(java.util.Locale.ROOT).contains(searchQuery)
+                        || entry.packageName.toLowerCase(java.util.Locale.ROOT).contains(searchQuery)) {
+                    visibleApps.add(entry);
+                }
+            }
+        }
+
+        private void dispatchAppDiff(List<AppEntry> previous) {
+            List<AppEntry> current = new ArrayList<>(visibleApps);
+            // Keep the header and spacer identities stable while application results change.
+            DiffUtil.calculateDiff(new DiffUtil.Callback() {
+                @Override public int getOldListSize() { return previous.size() + 2; }
+                @Override public int getNewListSize() { return current.size() + 2; }
+
+                @Override public boolean areItemsTheSame(int oldPosition, int newPosition) {
+                    if (oldPosition == 0 || newPosition == 0) return oldPosition == newPosition;
+                    boolean oldSpacer = oldPosition == previous.size() + 1;
+                    boolean newSpacer = newPosition == current.size() + 1;
+                    if (oldSpacer || newSpacer) return oldSpacer && newSpacer;
+                    return previous.get(oldPosition - 1).packageName
+                            .equals(current.get(newPosition - 1).packageName);
+                }
+
+                @Override public boolean areContentsTheSame(int oldPosition, int newPosition) {
+                    if (oldPosition == 0 || newPosition == 0) return oldPosition == newPosition;
+                    boolean oldSpacer = oldPosition == previous.size() + 1;
+                    boolean newSpacer = newPosition == current.size() + 1;
+                    if (oldSpacer || newSpacer) return oldSpacer && newSpacer;
+                    AppEntry oldEntry = previous.get(oldPosition - 1);
+                    AppEntry newEntry = current.get(newPosition - 1);
+                    return oldEntry.label.equals(newEntry.label) && oldEntry.icon == newEntry.icon;
+                }
+            }).dispatchUpdatesTo(this);
+        }
+
+        private void sortApps() {
+            java.text.Collator collator = java.text.Collator.getInstance();
+            collator.setStrength(java.text.Collator.SECONDARY);
+
+            apps.sort((a, b) -> {
+                boolean aSelected = editorSelectedApps.contains(a.packageName);
+                boolean bSelected = editorSelectedApps.contains(b.packageName);
+                if (aSelected != bSelected) return aSelected ? -1 : 1;
+
+                int byLabel = collator.compare(a.label, b.label);
+                return byLabel != 0
+                        ? byLabel
+                        : a.packageName.compareTo(b.packageName);
+            });
+        }
+
+        void setAppsVisible(boolean visible) {
+            if (appsVisible == visible) return;
+            appsVisible = visible;
+            header.setPadding(0, 0, 0, dp(14));
+
+            // The header always remains at position zero.
+            int count = visibleApps.size() + 1;
+            if (visible) notifyItemRangeInserted(1, count);
+            else notifyItemRangeRemoved(1, count);
+        }
+
+        @Override public int getItemCount() {
+            return 1 + (appsVisible ? visibleApps.size() + 1 : 0);
+        }
+
+        @Override public int getItemViewType(int position) {
+            if (position == 0) return TYPE_HEADER;
+            return position == visibleApps.size() + 1 ? TYPE_SPACER : TYPE_APP;
         }
 
         @Override public long getItemId(int position) {
-            return position;
+            if (position == 0) return 0L;
+            if (position == visibleApps.size() + 1) return Long.MAX_VALUE;
+            return itemIds.get(visibleApps.get(position - 1).packageName);
         }
 
-        @Override public View getView(int position, View convertView, ViewGroup parent) {
-            View row;
-            AppRowHolder holder;
-            if (convertView != null && convertView.getTag() instanceof AppRowHolder) {
-                row = convertView;
-                holder = (AppRowHolder) row.getTag();
-            } else {
-                row = buildAppRow();
-                holder = new AppRowHolder(row);
-                row.setTag(holder);
-            }
-            AppEntry entry = apps.get(position);
+        @Override public AppPickerViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            View view = viewType == TYPE_HEADER ? header
+                    : viewType == TYPE_SPACER ? searchSpacer : buildAppRow();
+            view.setLayoutParams(new RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    viewType == TYPE_SPACER ? searchSpacerHeight : ViewGroup.LayoutParams.WRAP_CONTENT));
+            return new AppPickerViewHolder(view, viewType == TYPE_APP);
+        }
+
+        @Override public void onBindViewHolder(AppPickerViewHolder viewHolder, int position) {
+            if (viewHolder.appRow == null) return;
+
+            AppEntry entry = visibleApps.get(position - 1);
+            AppRowHolder holder = viewHolder.appRow;
             holder.icon.setImageDrawable(entry.icon);
             holder.label.setText(entry.label);
+            holder.packageName.setText(entry.packageName);
             holder.checkBox.setOnCheckedChangeListener(null);
             holder.checkBox.setChecked(editorSelectedApps.contains(entry.packageName));
             holder.checkBox.setOnCheckedChangeListener((button, checked) -> {
+                if (viewHolder.getBindingAdapterPosition() == RecyclerView.NO_POSITION) return;
                 tap(button);
-                if (checked) editorSelectedApps.add(entry.packageName);
-                else editorSelectedApps.remove(entry.packageName);
+                updateSelection(entry, checked);
             });
-            row.setOnClickListener(v -> holder.checkBox.setChecked(!holder.checkBox.isChecked()));
-            return row;
+            viewHolder.itemView.setOnClickListener(v ->
+                    holder.checkBox.setChecked(!holder.checkBox.isChecked()));
+        }
+
+        private void updateSelection(AppEntry entry, boolean checked) {
+            int oldPosition = findAppPosition(entry.packageName);
+            if (oldPosition < 0) return;
+
+            boolean changed = checked
+                    ? editorSelectedApps.add(entry.packageName)
+                    : editorSelectedApps.remove(entry.packageName);
+            if (!changed) return;
+
+            sortApps();
+            rebuildVisibleApps();
+            int newPosition = findAppPosition(entry.packageName);
+            if (appsVisible && oldPosition != newPosition) {
+                // Only this package moved; RecyclerView animates affected rows.
+                // Offset by one because the header is also an adapter item.
+                notifyItemMoved(oldPosition + 1, newPosition + 1);
+            }
+        }
+
+        private int findAppPosition(String packageName) {
+            // Bound rows may still reference entries from the previous cached list.
+            for (int i = 0; i < visibleApps.size(); i++) {
+                if (visibleApps.get(i).packageName.equals(packageName)) return i;
+            }
+            return -1;
+        }
+
+        @Override public void onViewRecycled(AppPickerViewHolder viewHolder) {
+            if (viewHolder.appRow != null) {
+                viewHolder.appRow.checkBox.setOnCheckedChangeListener(null);
+                viewHolder.itemView.setOnClickListener(null);
+            }
+            super.onViewRecycled(viewHolder);
         }
     }
 
