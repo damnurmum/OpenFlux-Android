@@ -514,6 +514,8 @@ public final class MainActivity extends Activity {
 
     @Override protected void onStop() {
         handler.removeCallbacks(refresh);
+        // An animator keeps ticking off-screen; onStart's refresh restarts it.
+        setRingPulsing(false);
         super.onStop();
     }
 

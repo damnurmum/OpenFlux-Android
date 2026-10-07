@@ -12,7 +12,12 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
+import android.system.ErrnoException;
+import android.system.Os;
+import android.system.OsConstants;
+import android.system.StructPollfd;
 
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -202,6 +207,7 @@ public final class OpenFluxTunnelService extends VpnService {
         // (e.g. on a validation error below) would otherwise crash the app
         // with ForegroundServiceDidNotStartInTimeException.
         createNotificationChannel();
+        shownNotification = "Подключение…";
         startForeground(NOTIFICATION_ID, notification("Подключение…"));
 
         String transportTypeExtra = intent == null ? null : intent.getStringExtra(EXTRA_TRANSPORT_TYPE);
@@ -386,7 +392,10 @@ public final class OpenFluxTunnelService extends VpnService {
         try {
             while (isCurrent(session)) {
                 int length = input.read(buffer);
-                if (length <= 0) continue;
+                if (length <= 0) {
+                    awaitReadable(input.getFD());
+                    continue;
+                }
                 byte[] packet = Arrays.copyOf(buffer, length);
                 if (isIpv4Tcp(packet) || isIpv4Udp(packet)) {
                     String error = Mobile.send(packet);
@@ -399,6 +408,21 @@ public final class OpenFluxTunnelService extends VpnService {
             }
         } catch (IOException exception) {
             if (isCurrent(session)) fail(session, "Чтение TUN: " + exception.getMessage());
+        }
+    }
+
+    // The TUN descriptor establish() returns is non-blocking: with nothing to
+    // send, read() returns 0 at once and the loop above would spin a whole
+    // core. Waits until the device has a packet (or a second passes, so a
+    // stopped session is noticed).
+    private static void awaitReadable(FileDescriptor fd) {
+        StructPollfd poll = new StructPollfd();
+        poll.fd = fd;
+        poll.events = (short) OsConstants.POLLIN;
+        try {
+            Os.poll(new StructPollfd[]{poll}, 1000);
+        } catch (ErrnoException ignored) {
+            // EINTR and the like: the loop reads again.
         }
     }
 
@@ -540,7 +564,13 @@ public final class OpenFluxTunnelService extends VpnService {
                 .build();
     }
 
+    // Re-posting an unchanged notification every second still wakes
+    // SystemUI to redraw it; idle speeds stay the same text.
+    private String shownNotification = "";
+
     private void updateNotification(String text) {
+        if (text.equals(shownNotification)) return;
+        shownNotification = text;
         getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification(text));
     }
 }

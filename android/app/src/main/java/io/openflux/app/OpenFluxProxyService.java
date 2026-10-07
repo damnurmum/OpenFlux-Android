@@ -187,6 +187,7 @@ public final class OpenFluxProxyService extends Service {
         // (e.g. on a validation error below) would otherwise crash the app
         // with ForegroundServiceDidNotStartInTimeException.
         createNotificationChannel();
+        shownNotification = "Подключение…";
         startForeground(NOTIFICATION_ID, notification("Подключение…"));
 
         String transportTypeExtra = intent == null ? null : intent.getStringExtra(EXTRA_TRANSPORT_TYPE);
@@ -390,7 +391,13 @@ public final class OpenFluxProxyService extends Service {
                 .build();
     }
 
+    // Re-posting an unchanged notification every second still wakes
+    // SystemUI to redraw it; idle speeds stay the same text.
+    private String shownNotification = "";
+
     private void updateNotification(String text) {
+        if (text.equals(shownNotification)) return;
+        shownNotification = text;
         getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification(text));
     }
 }

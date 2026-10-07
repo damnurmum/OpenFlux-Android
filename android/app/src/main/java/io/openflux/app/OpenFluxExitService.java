@@ -105,6 +105,7 @@ public final class OpenFluxExitService extends Service {
         // startForeground must come first; an early stopSelf() before it
         // would crash with ForegroundServiceDidNotStartInTimeException.
         createNotificationChannel();
+        shownNotification = "Запуск выходной ноды…";
         startForeground(NOTIFICATION_ID, notification("Запуск выходной ноды…"));
 
         String typeExtra = intent == null ? null : intent.getStringExtra(OpenFluxTunnelService.EXTRA_TRANSPORT_TYPE);
@@ -269,7 +270,13 @@ public final class OpenFluxExitService extends Service {
                 .build();
     }
 
+    // Re-posting an unchanged notification every second still wakes
+    // SystemUI to redraw it; idle speeds stay the same text.
+    private String shownNotification = "";
+
     private void updateNotification(String text) {
+        if (text.equals(shownNotification)) return;
+        shownNotification = text;
         getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification(text));
     }
 }
