@@ -53,7 +53,7 @@ public final class OpenFluxExitService extends Service {
     private final Runnable monitor = new Runnable() {
         @Override public void run() {
             if (!running) return;
-            if (!Mobile.pendingCaptchaURL().isEmpty() && awaitingCaptcha.compareAndSet(false, true)) {
+            if (CaptchaActivity.pending() && awaitingCaptcha.compareAndSet(false, true)) {
                 int session = generation.get();
                 new Thread(() -> {
                     try { awaitCaptcha(session); }
@@ -176,10 +176,12 @@ public final class OpenFluxExitService extends Service {
     }
 
     private boolean awaitCaptcha(int session) {
-        if (Mobile.pendingCaptchaURL().isEmpty()) return false;
+        if (!CaptchaActivity.pending()) return false;
         String before = status;
         status = "Нужна проверка";
-        lastError = "Яндекс запросил проверку - откройте уведомление";
+        lastError = Mobile.pendingCaptchaOwn() || !Mobile.pendingCaptchaHTML().isEmpty()
+                ? "Транспорт просит настройку - откройте уведомление"
+                : "Яндекс запросил проверку - откройте уведомление";
         boolean solved = CaptchaActivity.awaitIfPending(this, () -> isCurrent(session));
         status = before;
         lastError = "";

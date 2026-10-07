@@ -48,12 +48,30 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    // The JS transports OpenFlux signs (see bundledScripts below), installed
+    // when the experimental features are turned on.
+    sourceSets {
+        main {
+            assets.srcDirs += "$buildDir/generated/bundledScripts"
+        }
+    }
+
     packagingOptions {
         jniLibs {
             useLegacyPackaging true
         }
     }
 }
+
+// The same set upstream's app ships, straight from the core submodule so it
+// follows each core update; MAX (oneme) is left out, as there.
+def bundledScripts = tasks.register("bundledScripts", Copy) {
+    from("$rootDir/../core/transport/script/js") {
+        include "yandex.js*", "vyandex.js*", "boards.js*", "mailru.js*", "cupsonline.js*"
+    }
+    into "$buildDir/generated/bundledScripts/scripts"
+}
+tasks.named("preBuild") { dependsOn bundledScripts }
 
 dependencies {
     implementation files("libs/openflux.aar")

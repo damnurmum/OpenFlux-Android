@@ -58,11 +58,11 @@ public final class NodeWizardActivity extends Activity {
     private final Runnable captchaPoll = new Runnable() {
         @Override public void run() {
             if (!verifying || destroyed) return;
-            String pending = Mobile.pendingCaptchaURL();
-            if (!pending.isEmpty() && !captchaShown) {
+            boolean pending = CaptchaActivity.pending();
+            if (pending && !captchaShown) {
                 captchaShown = true;
                 startActivity(new android.content.Intent(NodeWizardActivity.this, CaptchaActivity.class));
-            } else if (pending.isEmpty()) {
+            } else if (!pending) {
                 captchaShown = false;
             }
             handler.postDelayed(this, 500);
@@ -1134,7 +1134,7 @@ public final class NodeWizardActivity extends Activity {
         runJob("Проверка соединения через ноду…", () -> {
             String link = Mobile.nodeShareLink("Нода " + host, transportsJson, channelKey, host, channelPort);
             Profile candidate = Profile.fromShare(new JSONObject(Mobile.parseShareLink(link)));
-            JSONObject answer = response(Mobile.nodeVerify(candidate.sessionTransportsJson(), channelKey, host, 90));
+            JSONObject answer = response(Mobile.nodeVerify(candidate.sessionTransportsJson(null), channelKey, host, 90));
             if (ok(answer)) answer.put("shareLink", link);
             return answer;
         }, answer -> {

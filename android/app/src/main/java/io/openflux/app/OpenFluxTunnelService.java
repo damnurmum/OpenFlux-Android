@@ -122,7 +122,7 @@ public final class OpenFluxTunnelService extends VpnService {
     // blocking network access indefinitely.
     private final Runnable healthChecker = new Runnable() {
         @Override public void run() {
-            if (running && !Mobile.pendingCaptchaURL().isEmpty() && awaitingCaptcha.compareAndSet(false, true)) {
+            if (running && CaptchaActivity.pending() && awaitingCaptcha.compareAndSet(false, true)) {
                 // Captcha hit on a mid-session reconnect, not during the initial connect.
                 int session = generation.get();
                 new Thread(() -> {
@@ -291,9 +291,9 @@ public final class OpenFluxTunnelService extends VpnService {
         for (int attempt = 0; isCurrent(session) && !Mobile.isConnected() && attempt < 120; attempt++) {
             // Only the phone's own checks block connecting; the node's are
             // handled by the health checker once the tunnel is up.
-            if (!Mobile.pendingCaptchaURL().isEmpty() && Mobile.pendingCaptchaProxy().isEmpty()) {
+            if (CaptchaActivity.pending() && Mobile.pendingCaptchaProxy().isEmpty()) {
                 if (!awaitCaptcha(session)) {
-                    if (isCurrent(session)) fail(session, "Проверка Яндекса не пройдена");
+                    if (isCurrent(session)) fail(session, "Проверка не пройдена");
                     return;
                 }
                 attempt = 0;
@@ -459,7 +459,7 @@ public final class OpenFluxTunnelService extends VpnService {
     }
 
     private boolean awaitCaptcha(int session) {
-        if (Mobile.pendingCaptchaURL().isEmpty()) return false;
+        if (!CaptchaActivity.pending()) return false;
         if (!Mobile.pendingCaptchaProxy().isEmpty()) {
             // The node's own document carrier is stuck; the tunnel itself
             // keeps working over another transport, so the status stays.
@@ -469,7 +469,9 @@ public final class OpenFluxTunnelService extends VpnService {
             return solved;
         }
         status = "Нужна проверка";
-        lastError = "Яндекс запросил проверку - откройте уведомление";
+        lastError = Mobile.pendingCaptchaOwn() || !Mobile.pendingCaptchaHTML().isEmpty()
+                ? "Транспорт просит настройку - откройте уведомление"
+                : "Яндекс запросил проверку - откройте уведомление";
         boolean solved = CaptchaActivity.awaitIfPending(this, () -> isCurrent(session));
         if (solved) {
             status = "Подключение…";

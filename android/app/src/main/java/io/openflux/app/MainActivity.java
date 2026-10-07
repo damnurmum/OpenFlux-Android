@@ -118,6 +118,8 @@ public final class MainActivity extends Activity {
     private static final int NOTIFICATION_PERMISSION_REQUEST = 43;
     private static final int NODE_WIZARD_REQUEST = 44;
     private static final int QR_IMAGE_REQUEST = 45;
+    private static final int SCRIPTS_REQUEST = 46;
+    private static final int SCRIPT_SETTINGS_REQUEST = 47;
     private static final int DEFAULT_MTU = 1400;
     private static final int PAGE_HOME = 0;
     private static final int PAGE_PROFILES = 1;
@@ -214,6 +216,14 @@ public final class MainActivity extends Activity {
     private String editorMaxUid = "";
     private boolean editorSession;
     private boolean editorStream;
+    // The main carrier's JS transport and its saved settings ("script" type).
+    private String editorScriptId = "";
+    private JSONObject editorSettings = new JSONObject();
+    private View scriptSettingsButton;
+    // A settings page in flight: what the script declares, where the answer goes.
+    private java.util.Set<String> pendingSettingsKeys;
+    private String pendingSettingsPrimary = "";
+    private java.util.function.BiConsumer<String, JSONObject> pendingSettingsSave;
     private int editorPriority = 50;
     private final List<Profile.Transport> editorExtras = new ArrayList<>();
     private View sessionFieldsContainer;
@@ -997,7 +1007,8 @@ public final class MainActivity extends Activity {
             case "vyandex":
             case "boards": return R.drawable.ic_yandex;
             case "mailru": return R.drawable.ic_mailru;
-            case "cupsonline": return R.drawable.ic_code;
+            case "cupsonline":
+            case "script": return R.drawable.ic_code;
             case "oneme": return R.drawable.ic_max;
             case "direct": return R.drawable.ic_link;
             default: return R.drawable.ic_public;
@@ -1008,12 +1019,18 @@ public final class MainActivity extends Activity {
         return Profile.transportLabel(type);
     }
 
+    private String carrierLabel(String type, String scriptId) {
+        return "script".equals(type) ? "JS: " + scriptId : transportLabel(type);
+    }
+
     private String profileTransportSummary(Profile p) {
         if (p.stream) return "Без сервера: " + transportLabel(p.transportType);
-        if (!p.session) return transportLabel(p.transportType);
-        StringBuilder summary = new StringBuilder("Session: ").append(transportLabel(p.transportType));
-        for (Profile.Transport t : p.extraTransports) summary.append(" + ").append(transportLabel(t.type));
-        return summary.toString();
+        if (p.session) {
+            StringBuilder summary = new StringBuilder("Session: ").append(carrierLabel(p.transportType, p.scriptId));
+            for (Profile.Transport t : p.extraTransports) summary.append(" + ").append(carrierLabel(t.type, t.scriptId));
+            return summary.toString();
+        }
+        return transportLabel(p.transportType);
     }
 
     private void selectProfile(long id) {
@@ -1035,6 +1052,8 @@ public final class MainActivity extends Activity {
         editorMaxUid = existing != null ? existing.maxUid : "";
         editorSession = existing != null && existing.session;
         editorStream = existing != null && existing.stream;
+        editorScriptId = existing != null ? existing.scriptId : "";
+        editorSettings = Profile.copyOf(existing != null ? existing.settings : null);
         editorPriority = existing != null ? existing.priority : 50;
         editorExtras.clear();
         if (existing != null) for (Profile.Transport t : existing.extraTransports) editorExtras.add(t.copy());
@@ -1054,6 +1073,15 @@ public final class MainActivity extends Activity {
         }
         if (editorStream && !"cupsonline".equals(editorTransportType) && !"mailru".equals(editorTransportType)) {
             Toast.makeText(this, "Режим без сервера работает только через Cups.online или Mail.ru", Toast.LENGTH_LONG).show();
+            return;
+        }
+        boolean mainScript = "script".equals(editorTransportType);
+        if (mainScript && editorScriptId.isEmpty()) {
+            Toast.makeText(this, "Выберите JS-транспорт", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (mainScript && !editorSession) {
+            Toast.makeText(this, "JS-транспорт работает только в режиме Session", Toast.LENGTH_LONG).show();
             return;
         }
         // The stream mode has no key; a hidden leftover one must not be saved.
@@ -1102,6 +1130,8 @@ public final class MainActivity extends Activity {
         target.maxToken = token;
         target.maxUid = uid;
         target.session = editorSession && !editorStream;
+        target.scriptId = mainScript ? editorScriptId : "";
+        target.settings = mainScript ? Profile.copyOf(editorSettings) : new JSONObject();
         target.stream = editorStream;
         target.priority = mainPriority;
         target.extraTransports.clear();
@@ -1721,6 +1751,13 @@ public final class MainActivity extends Activity {
                 "Сайты и сервисы в обход туннеля", SETTINGS_ROUTING));
         list.addView(settingsListRow(R.drawable.ic_dark_mode, "Вид",
                 "Тема и автопрокрутка логов", SETTINGS_INTERFACE));
+        View scripts = settingsListRow(R.drawable.ic_code, "JS-транспорты",
+                ScriptStore.experimental(this) ? "Экспериментально: включены" : "Экспериментально: выключены", -1);
+        scripts.setOnClickListener(v -> {
+            bounce(v);
+            startActivityForResult(new Intent(this, ScriptsActivity.class), SCRIPTS_REQUEST);
+        });
+        list.addView(scripts);
         list.addView(settingsListRow(R.drawable.ic_info, "О проекте",
                 "Репозитории проекта", SETTINGS_ABOUT));
         groupTiles(list);
@@ -2401,6 +2438,24 @@ public final class MainActivity extends Activity {
         urlField.setVisibility("oneme".equals(editorTransportType) ? View.GONE : View.VISIBLE);
         section.addView(urlField, urlParams);
 
+        Button scriptSettings = new Button(this);
+        scriptSettings.setText("Настройки транспорта");
+        scriptSettings.setAllCaps(false);
+        scriptSettings.setTextColor(accent);
+        scriptSettings.setTextSize(13);
+        scriptSettings.setStateListAnimator(null);
+        scriptSettings.setBackground(ripple(Color.TRANSPARENT, 9));
+        scriptSettings.setOnClickListener(v -> {
+            tap(v);
+            openScriptSettings(editorScriptId, urlInput.getText().toString().trim(), editorSettings, (value, rest) -> {
+                if (value != null) urlInput.setText(value);
+                editorSettings = rest;
+            });
+        });
+        scriptSettingsButton = scriptSettings;
+        section.addView(scriptSettings, new LinearLayout.LayoutParams(-1, dp(44)));
+        updateScriptSettingsButton();
+
         TextView streamHint = text("Выход - PHP-нода на обычном хостинге (deploy/phpbox), связь с ней через "
                 + "одну комнату Cups.online или документ Mail.ru. Ключа и Session нет: содержимое защищает "
                 + "TLS самих приложений. Через PHP-ноду идёт только TCP на портах 80 и 443 (сайты и большинство "
@@ -2480,8 +2535,108 @@ public final class MainActivity extends Activity {
     // The main field's label in the editor: in stream mode Cups.online takes
     // the room's link, not the classic exit's room code.
     private String editorValueLabel() {
+        if ("script".equals(editorTransportType)) return scriptValueLabel(editorScriptId);
         return editorStream && "cupsonline".equals(editorTransportType)
                 ? "Ссылка на комнату Cups.online" : transportValueLabel(editorTransportType);
+    }
+
+    // The profile field of a JS transport: its primary param's label.
+    private String scriptValueLabel(String scriptId) {
+        ScriptStore.Script script = new ScriptStore(this).byId(scriptId);
+        org.json.JSONObject param = script == null ? null : script.primaryParam();
+        String label = param == null ? "" : param.optString("label", param.optString("key"));
+        return label.isEmpty() ? "Значение для JS-транспорта (если нужно)" : label;
+    }
+
+    private void updateScriptSettingsButton() {
+        if (scriptSettingsButton == null) return;
+        ScriptStore.Script script = "script".equals(editorTransportType) ? new ScriptStore(this).byId(editorScriptId) : null;
+        scriptSettingsButton.setVisibility(script != null && script.hasSettings() ? View.VISIBLE : View.GONE);
+    }
+
+    // Opens a JS transport's settings page (the core builds it from what the
+    // script declares, or the script brings its own) prefilled from the
+    // carrier's saved values plus its profile field; onSave gets the field's
+    // new value and the rest of the settings.
+    private void openScriptSettings(String scriptId, String value, JSONObject saved,
+            java.util.function.BiConsumer<String, JSONObject> onSave) {
+        ScriptStore store = new ScriptStore(this);
+        ScriptStore.Script script = store.byId(scriptId);
+        if (script == null) return;
+        new Thread(() -> {
+            String message = null;
+            JSONObject answer = null;
+            try {
+                byte[][] pkg = store.packageBytes(script);
+                if (pkg == null) throw new IllegalStateException("файл скрипта не найден");
+                JSONObject values = Profile.copyOf(saved);
+                if (!script.primaryKey().isEmpty()) values.put(script.primaryKey(), value);
+                answer = new JSONObject(Mobile.scriptSettings(pkg[0], pkg[1], script.pubkey, values.toString(), "ru"));
+                if (!answer.optBoolean("ok")) message = scriptSettingsProblem(answer);
+            } catch (Exception e) {
+                message = "Не удалось открыть настройки: " + e.getMessage();
+            }
+            String problem = message;
+            JSONObject page = answer;
+            runOnUiThread(() -> {
+                if (problem != null) {
+                    Toast.makeText(this, problem, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                pendingSettingsKeys = new java.util.HashSet<>();
+                org.json.JSONArray params = page.optJSONArray("params");
+                for (int i = 0; params != null && i < params.length(); i++) {
+                    pendingSettingsKeys.add(params.optJSONObject(i).optString("key"));
+                }
+                pendingSettingsPrimary = script.primaryKey();
+                pendingSettingsSave = onSave;
+                startActivityForResult(new Intent(this, CaptchaActivity.Settings.class)
+                        .putExtra(CaptchaActivity.EXTRA_SETTINGS_HTML, page.optString("html"))
+                        .putExtra(CaptchaActivity.EXTRA_TITLE, script.name + ": настройки"), SCRIPT_SETTINGS_REQUEST);
+            });
+        }, "script-settings").start();
+    }
+
+    // What the settings page submitted: only what the script declares (a
+    // custom page may send more), the profile field's key split back out.
+    private void onScriptSettings(String json) {
+        java.util.function.BiConsumer<String, JSONObject> save = pendingSettingsSave;
+        pendingSettingsSave = null;
+        if (json == null || save == null) return;
+        JSONObject values;
+        try {
+            values = ScriptStore.flatten(json);
+        } catch (IllegalArgumentException e) {
+            Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        String primary = null;
+        JSONObject rest = new JSONObject();
+        for (java.util.Iterator<String> keys = values.keys(); keys.hasNext(); ) {
+            String key = keys.next();
+            if (!pendingSettingsKeys.isEmpty() && !pendingSettingsKeys.contains(key)) continue;
+            if (key.equals(pendingSettingsPrimary)) primary = values.optString(key);
+            else {
+                try {
+                    rest.put(key, values.optString(key));
+                } catch (org.json.JSONException ignored) {
+                    // A non-empty string key always fits.
+                }
+            }
+        }
+        save.accept(primary, rest);
+        Toast.makeText(this, "Настройки перенесены: сохраните профиль", Toast.LENGTH_LONG).show();
+    }
+
+    // Why the core could not open a script's settings (upstream's ScriptSettingsMessages).
+    private static String scriptSettingsProblem(JSONObject page) {
+        switch (page.optString("code")) {
+            case "no_key": return "У скрипта нет закреплённого ключа автора: переустановите его";
+            case "bad_signature": return "Файл скрипта не совпадает с подписью автора. Переустановите транспорт";
+            case "no_settings": return "У этого транспорта нет настроек";
+            case "needs_newer_app": return "Транспорту нужна более новая версия приложения";
+            default: return "Не удалось открыть настройки: " + page.optString("error", "неизвестная ошибка");
+        }
     }
 
     private void applySessionVisibility() {
@@ -2574,7 +2729,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(text(transportLabel(t.type), 15, text, true), new LinearLayout.LayoutParams(0, -2, 1f));
+        header.addView(text(carrierLabel(t.type, t.scriptId), 15, text, true), new LinearLayout.LayoutParams(0, -2, 1f));
         Button remove = new Button(this);
         remove.setText("Удалить");
         remove.setAllCaps(false);
@@ -2590,22 +2745,64 @@ public final class MainActivity extends Activity {
         header.addView(remove, new LinearLayout.LayoutParams(-2, dp(44)));
         card.addView(header, matchWrap());
 
-        String[] types = {"direct", "yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme"};
-        String[] typeLabels = {"Direct", "Yandex", "Volga", "Board", "Mail.ru", "Cups", "MAX"};
+        List<ScriptStore.Script> scripts = new ScriptStore(this).usable();
+        boolean js = !scripts.isEmpty() || "script".equals(t.type);
+        String[] types = js ? new String[]{"direct", "yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme", "script"}
+                : new String[]{"direct", "yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme"};
+        String[] typeLabels = js ? new String[]{"Direct", "Yandex", "Volga", "Board", "Mail.ru", "Cups", "MAX", "JS"}
+                : new String[]{"Direct", "Yandex", "Volga", "Board", "Mail.ru", "Cups", "MAX"};
         card.addView(chips(typeLabels, java.util.Arrays.asList(types).indexOf(t.type), i -> {
             t.type = types[i];
             t.value = "";
             t.uid = "";
+            t.scriptId = "";
+            t.settings = new JSONObject();
             refreshExtras();
         }), matchWrap());
 
+        if ("script".equals(t.type)) {
+            String[] names = new String[scripts.size()];
+            for (int i = 0; i < names.length; i++) names[i] = scripts.get(i).name;
+            int picked = -1;
+            for (int i = 0; i < names.length; i++) if (scripts.get(i).id.equals(t.scriptId)) picked = i;
+            if (names.length == 0) {
+                card.addView(text("Нет включённых JS-транспортов: «Настройки» → «JS-транспорты».", 12, secondary, false));
+            } else {
+                card.addView(chips(names, picked, i -> {
+                    t.scriptId = scripts.get(i).id;
+                    t.settings = new JSONObject();
+                    refreshExtras();
+                }), matchWrap());
+            }
+        }
+
         boolean max = "oneme".equals(t.type);
         boolean direct = "direct".equals(t.type);
-        EditText value = settingInput(transportValueLabel(t.type), t.value,
+        boolean script = "script".equals(t.type);
+        EditText value = settingInput(script ? scriptValueLabel(t.scriptId) : transportValueLabel(t.type), t.value,
                 max ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD
                         : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         bindText(value, v -> t.value = v);
         boxedInput(card, value, dp(12));
+        ScriptStore.Script installed = script ? new ScriptStore(this).byId(t.scriptId) : null;
+        if (installed != null && installed.hasSettings()) {
+            Button settings = new Button(this);
+            settings.setText("Настройки транспорта");
+            settings.setAllCaps(false);
+            settings.setTextColor(accent);
+            settings.setTextSize(13);
+            settings.setStateListAnimator(null);
+            settings.setBackground(ripple(Color.TRANSPARENT, 9));
+            settings.setOnClickListener(v -> {
+                tap(v);
+                openScriptSettings(t.scriptId, t.value, t.settings, (newValue, rest) -> {
+                    if (newValue != null) t.value = newValue;
+                    t.settings = rest;
+                    refreshExtras();
+                });
+            });
+            card.addView(settings, new LinearLayout.LayoutParams(-1, dp(44)));
+        }
         if (max) {
             EditText uid = settingInput("MAX call user id", t.uid, InputType.TYPE_CLASS_NUMBER);
             bindText(uid, v -> t.uid = v);
@@ -2620,6 +2817,7 @@ public final class MainActivity extends Activity {
 
     // Returns why an extra Session transport can't be saved, or null.
     private String extraTransportProblem(Profile.Transport t) {
+        if ("script".equals(t.type) && t.scriptId.isEmpty()) return "Выберите JS-транспорт";
         return transportValueProblem(t.type, t.value, true);
     }
 
@@ -2640,6 +2838,8 @@ public final class MainActivity extends Activity {
             }
             case "oneme":
                 return value.isEmpty() ? "MAX: укажите Web token" : null;
+            case "script":
+                return null; // the script validates its own params in the engine
             case "cupsonline":
                 if (value.isEmpty()) return allowEmptyCups ? null : "Cups.online: укажите код комнат с ноды";
                 return isValidDocumentUrl(value) || CUPS_ROOMS_CODE.matcher(value).matches()
@@ -2691,18 +2891,35 @@ public final class MainActivity extends Activity {
     }
 
     private View buildTransportTypeSelector() {
-        String[] types = {"yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme"};
-        int current = Math.max(0, java.util.Arrays.asList(types).indexOf(editorTransportType));
-        return choiceList(new String[][]{
+        List<String> types = new ArrayList<>(java.util.Arrays.asList("yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme"));
+        List<String[]> labels = new ArrayList<>(java.util.Arrays.asList(new String[][]{
                 {"Yandex Docs", "Документ Яндекса"},
                 {"Yandex Docs (Volga)", "Экспериментальный"},
                 {"Yandex Board", "Доска Яндекса, экспериментальный"},
                 {"Mail.ru Docs", "Документ в Облаке Mail.ru"},
                 {"Cups.online", "Комнаты live-coding, код комнат с ноды"},
                 {"MAX (OneMe)", "Звонок MAX, нужен Web token"},
-        }, new int[]{R.drawable.ic_yandex, R.drawable.ic_yandex, R.drawable.ic_yandex,
-                R.drawable.ic_mailru, R.drawable.ic_code, R.drawable.ic_max}, current, i -> {
-            editorTransportType = types[i];
+        }));
+        List<Integer> icons = new ArrayList<>(java.util.Arrays.asList(R.drawable.ic_yandex, R.drawable.ic_yandex,
+                R.drawable.ic_yandex, R.drawable.ic_mailru, R.drawable.ic_code, R.drawable.ic_max));
+        // Installed JS transports, as "script:<id>" (Session only).
+        for (ScriptStore.Script script : new ScriptStore(this).usable()) {
+            types.add("script:" + script.id);
+            labels.add(new String[]{"JS: " + script.name, (script.official ? "OpenFlux" : "Сторонний")
+                    + ", версия " + script.version + ", только Session"});
+            icons.add(R.drawable.ic_code);
+        }
+        String selectedKey = "script".equals(editorTransportType) ? "script:" + editorScriptId : editorTransportType;
+        int current = Math.max(0, types.indexOf(selectedKey));
+        int[] iconArray = new int[icons.size()];
+        for (int i = 0; i < iconArray.length; i++) iconArray[i] = icons.get(i);
+        return choiceList(labels.toArray(new String[0][]), iconArray, current, i -> {
+            String picked = types.get(i);
+            String pickedScript = picked.startsWith("script:") ? picked.substring("script:".length()) : "";
+            if (!pickedScript.equals(editorScriptId)) editorSettings = new JSONObject();
+            editorScriptId = pickedScript;
+            editorTransportType = pickedScript.isEmpty() ? picked : "script";
+            updateScriptSettingsButton();
             if (maxFieldsContainer != null) {
                 maxFieldsContainer.setVisibility("oneme".equals(editorTransportType) ? View.VISIBLE : View.GONE);
             }
@@ -3815,6 +4032,12 @@ public final class MainActivity extends Activity {
             showPage(PAGE_PROFILES);
             return;
         }
+        Profile selected = selectedProfile();
+        String scriptProblem = selected == null ? null : selected.scriptProblem(new ScriptStore(this));
+        if (scriptProblem != null) {
+            Toast.makeText(this, scriptProblem, Toast.LENGTH_LONG).show();
+            return;
+        }
         if (encryptionSecret != null && !encryptionSecret.isEmpty() && encryptionSecret.length() < 16) {
             Toast.makeText(this, "Ключ шифрования профиля должен быть не короче 16 символов, либо пустым", Toast.LENGTH_LONG).show();
             showPage(PAGE_PROFILES);
@@ -3865,6 +4088,11 @@ public final class MainActivity extends Activity {
             if (scan.getContents() != null) importShareLink(scan.getContents());
             return;
         }
+        if (requestCode == SCRIPTS_REQUEST && currentPage == PAGE_SETTINGS) showPage(PAGE_SETTINGS);
+        if (requestCode == SCRIPT_SETTINGS_REQUEST) {
+            onScriptSettings(resultCode == RESULT_OK && data != null
+                    ? data.getStringExtra(CaptchaActivity.EXTRA_SUBMITTED) : null);
+        }
         if (requestCode == TUNNEL_PERMISSION_REQUEST && resultCode == RESULT_OK) startTunnel();
         else if (requestCode == TUNNEL_PERMISSION_REQUEST) appendLog("[ERROR] Разрешение на создание туннеля не выдано");
     }
@@ -3872,7 +4100,7 @@ public final class MainActivity extends Activity {
     private void putProfileExtras(Intent intent) {
         Profile p = selectedProfile();
         if (p != null) {
-            p.putConnectionExtras(intent);
+            p.putConnectionExtras(intent, new ScriptStore(this));
             return;
         }
         intent.putExtra(OpenFluxTunnelService.EXTRA_DOCUMENT_URL, documentUrl);

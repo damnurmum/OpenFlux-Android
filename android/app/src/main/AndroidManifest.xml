@@ -56,6 +56,17 @@
             android:excludeFromRecents="true"
             android:launchMode="singleTask" />
 
+        <!-- A script's settings page for the profile editor: started for a
+             result, which a singleTask activity cannot return. -->
+        <activity
+            android:name=".CaptchaActivity$Settings"
+            android:exported="false" />
+
+        <activity
+            android:name=".ScriptsActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <activity
             android:name=".NodeWizardActivity"
             android:exported="false"

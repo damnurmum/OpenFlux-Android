@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -23,10 +24,15 @@ import android.widget.Toast;
 
 import androidx.webkit.ProxyConfig;
 import androidx.webkit.ProxyController;
+import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 import java.io.File;
+import java.util.Collections;
+import java.util.Locale;
 import java.util.function.BooleanSupplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import io.openflux.bridge.mobile.Mobile;
 
@@ -34,7 +40,29 @@ import io.openflux.bridge.mobile.Mobile;
 // core can't get through on its own, then hands the resulting cookies back
 // to it. Android's side of the core's out-of-band cookie flow - desktop and
 // iOS do the same over transport/ipc.
-public final class CaptchaActivity extends Activity {
+//
+// A JS transport's own page (its inline html, or its own server on
+// 127.0.0.1, PendingCaptchaOwn) is shown as it is and hands its data over
+// through window.openfluxSubmit instead of cookies. With EXTRA_SETTINGS_HTML
+// the same page host shows a script's settings page for the profile editor
+// and returns what it submitted (EXTRA_SUBMITTED) instead of calling the core.
+public class CaptchaActivity extends Activity {
+    // The settings-page host: the same page code, its own manifest entry.
+    public static final class Settings extends CaptchaActivity { }
+
+    static final String EXTRA_SETTINGS_HTML = "io.openflux.app.SETTINGS_HTML";
+    static final String EXTRA_TITLE = "io.openflux.app.SETTINGS_TITLE";
+    static final String EXTRA_SUBMITTED = "io.openflux.app.SUBMITTED";
+    // window.openfluxSubmit for a script's page; fires "openflux-ready" once
+    // defined. Idempotent: it goes in before the page's scripts where it can
+    // and again when the page has loaded.
+    private static final String SUBMIT_BRIDGE = "OpenFluxSubmit";
+    private static final String BRIDGE_JS = "(function(){if(window.openfluxSubmit)return;"
+            + "window.openfluxSubmit=function(p){try{var j=JSON.stringify(p);window." + SUBMIT_BRIDGE + ".submit(j)}catch(e){}};"
+            + "setTimeout(function(){try{window.dispatchEvent(new Event('openflux-ready'))}catch(e){}},0)})();";
+    private static final Pattern LOOPBACK = Pattern.compile(
+            "(?i)http://(127\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|localhost|\\[::1\\]):(\\d{1,5})(?:[/?#].*)?");
+
     // Same UA the Go transport uses for the document fetch: the captcha pass
     // may be bound to it, so solving under a different one could be useless.
     private static final String USER_AGENT =
@@ -49,8 +77,18 @@ public final class CaptchaActivity extends Activity {
     // this proxy (the tunnel) so it is passed from the node's address.
     private String proxy = "";
     private boolean proxyOverridden;
-    private String currentUrl;
+    private volatile String currentUrl;
     private boolean submitted;
+    // A script's own page: its inline html, or the origin of its own server.
+    private String ownHtml;
+    private String ownOrigin;
+    private boolean settingsMode;
+
+    // Whether the core waits on a page: a real site's (URL) or a script's
+    // inline one (HTML only, no URL).
+    static boolean pending() {
+        return !Mobile.pendingCaptchaURL().isEmpty() || !Mobile.pendingCaptchaHTML().isEmpty();
+    }
 
     static void initCookieStore(Context context) {
         Mobile.setCookieStorePath(new File(context.getFilesDir(), "transport-cookies.json").getPath());
@@ -60,7 +98,7 @@ public final class CaptchaActivity extends Activity {
     // it as a notification. Returns true once the user submitted cookies,
     // false if nothing was pending, the user cancelled, or the session ended.
     static boolean awaitIfPending(Context context, BooleanSupplier stillCurrent) {
-        if (Mobile.pendingCaptchaURL().isEmpty()) return false;
+        if (!pending()) return false;
         solved = false;
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(
@@ -70,7 +108,8 @@ public final class CaptchaActivity extends Activity {
                 context, 1, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         boolean login = "login".equals(Mobile.pendingCaptchaReason());
         boolean remote = !Mobile.pendingCaptchaProxy().isEmpty();
-        String title = remote
+        boolean own = Mobile.pendingCaptchaOwn() || !Mobile.pendingCaptchaHTML().isEmpty();
+        String title = own ? "OpenFlux: транспорт просит настройку" : remote
                 ? (login ? "OpenFlux: ноде нужен вход в Яндекс" : "OpenFlux: нода просит пройти проверку")
                 : (login ? "OpenFlux: нужен вход в Яндекс" : "OpenFlux: нужна проверка");
         manager.notify(NOTIFICATION_ID, new Notification.Builder(context, CHANNEL_ID)
@@ -82,7 +121,7 @@ public final class CaptchaActivity extends Activity {
                 .setContentIntent(content)
                 .build());
         try {
-            while (stillCurrent.getAsBoolean() && !Mobile.pendingCaptchaURL().isEmpty()) {
+            while (stillCurrent.getAsBoolean() && pending()) {
                 Thread.sleep(500);
             }
         } catch (InterruptedException interrupted) {
@@ -95,17 +134,32 @@ public final class CaptchaActivity extends Activity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        startUrl = Mobile.pendingCaptchaURL();
-        if (startUrl.isEmpty()) {
-            finish();
-            return;
+        String reason = Mobile.pendingCaptchaReason();
+        settingsMode = getIntent().hasExtra(EXTRA_SETTINGS_HTML);
+        if (settingsMode) {
+            ownHtml = getIntent().getStringExtra(EXTRA_SETTINGS_HTML);
+            startUrl = "";
+            reason = getIntent().getStringExtra(EXTRA_TITLE);
+        } else {
+            startUrl = Mobile.pendingCaptchaURL();
+            String html = Mobile.pendingCaptchaHTML();
+            if (!html.isEmpty()) ownHtml = html;
+            else if (Mobile.pendingCaptchaOwn()) ownOrigin = loopbackOrigin(startUrl);
+            if (startUrl.isEmpty() && ownHtml == null) {
+                finish();
+                return;
+            }
         }
-        boolean login = "login".equals(Mobile.pendingCaptchaReason());
-        proxy = Mobile.pendingCaptchaProxy();
+        boolean own = ownHtml != null || ownOrigin != null;
+        boolean login = "login".equals(reason);
+        // A script's page never goes through the exit's proxy: it is inline or loopback.
+        proxy = own ? "" : Mobile.pendingCaptchaProxy();
         boolean remote = !proxy.isEmpty();
 
         TextView title = new TextView(this);
-        title.setText(remote
+        title.setText(own
+                ? (reason == null || reason.isEmpty() ? "Настройка транспорта" : reason)
+                : remote
                 ? (login ? "Вход в Яндекс для ноды" : "Проверка для ноды")
                 : (login ? "Войдите в Яндекс" : "Пройдите проверку"));
         title.setTextSize(16);
@@ -122,7 +176,8 @@ public final class CaptchaActivity extends Activity {
         bar.setPadding(pad * 2, pad, pad, pad);
         bar.addView(title, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         bar.addView(cancel);
-        bar.addView(done);
+        // A script's page submits itself.
+        if (!own) bar.addView(done);
 
         WebView web = new WebView(this);
         WebSettings settings = web.getSettings();
@@ -132,9 +187,24 @@ public final class CaptchaActivity extends Activity {
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
         cookies.setAcceptThirdPartyCookies(web, true);
+        if (own) {
+            web.addJavascriptInterface(new Submit(), SUBMIT_BRIDGE);
+            if (ownOrigin != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                WebViewCompat.addDocumentStartJavaScript(web, BRIDGE_JS,
+                        Collections.singleton(ownOrigin.substring(0, ownOrigin.length() - 1)));
+            }
+        }
         web.setWebViewClient(new WebViewClient() {
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                currentUrl = url;
+            }
+
             @Override public void onPageFinished(WebView view, String url) {
                 currentUrl = url;
+                if (own) {
+                    if (bridgeAllowedAt(url)) view.evaluateJavascript(BRIDGE_JS, null);
+                    return;
+                }
                 // A real browser is often let through without any check (the
                 // captcha targets the transport's bot-like client), so any
                 // regular page counts as passed. The short delay lets a page
@@ -163,6 +233,10 @@ public final class CaptchaActivity extends Activity {
             root.setFitsSystemWindows(true);
         }
         setContentView(root);
+        if (ownHtml != null) {
+            web.loadDataWithBaseURL(null, inject(ownHtml, BRIDGE_JS), "text/html", "utf-8", null);
+            return;
+        }
         if (!remote) {
             web.loadUrl(startUrl);
             return;
@@ -214,7 +288,77 @@ public final class CaptchaActivity extends Activity {
     }
 
     private void cancel() {
-        if (!submitted) Mobile.cancelCaptcha();
+        if (!submitted && !settingsMode) Mobile.cancelCaptcha();
         finish();
+    }
+
+    // What a script's page handed to window.openfluxSubmit.
+    private void submitData(String json) {
+        if (submitted) return;
+        if (settingsMode) {
+            submitted = true;
+            setResult(RESULT_OK, new Intent().putExtra(EXTRA_SUBMITTED, json));
+            finish();
+            return;
+        }
+        String error = Mobile.submitCaptchaData(json);
+        if (error != null && !error.isEmpty()) {
+            Toast.makeText(this, error, Toast.LENGTH_LONG).show();
+            return;
+        }
+        submitted = true;
+        solved = true;
+        finish();
+    }
+
+    // The submit channel belongs to the page's own address: once the WebView
+    // has followed a link anywhere else, what it sends is dropped.
+    private boolean bridgeAllowedAt(String at) {
+        if (ownHtml != null) return at == null || at.isEmpty() || at.startsWith("about:") || at.startsWith("data:");
+        return ownOrigin != null && at != null && at.toLowerCase(Locale.ROOT).startsWith(ownOrigin);
+    }
+
+    private final class Submit {
+        @JavascriptInterface public void submit(String json) {
+            // Called on a WebView thread; currentUrl is volatile.
+            if (!bridgeAllowedAt(currentUrl)) return;
+            runOnUiThread(() -> submitData(json));
+        }
+    }
+
+    // "http://host:port/" of a page on the script's own loopback server, the
+    // prefix its address must keep for the bridge; null for anything else.
+    static String loopbackOrigin(String url) {
+        Matcher m = LOOPBACK.matcher(url == null ? "" : url.trim());
+        if (!m.matches()) return null;
+        int port = Integer.parseInt(m.group(2));
+        if (port < 1 || port > 65535) return null;
+        return "http://" + m.group(1).toLowerCase(Locale.ROOT) + ":" + port + "/";
+    }
+
+    // Puts a script into a page where it runs before the page's own and the
+    // page stays in standards mode: after <head>, else <html>, else the
+    // doctype, else in front (the core's devhost.InjectSnippet does the same).
+    static String inject(String page, String snippet) {
+        String tag = "<script>" + snippet + "</script>";
+        // A-Z only, so every index into lower is an index into page.
+        char[] chars = page.toCharArray();
+        for (int i = 0; i < chars.length; i++) if (chars[i] >= 'A' && chars[i] <= 'Z') chars[i] += 32;
+        String lower = new String(chars);
+        for (String open : new String[]{"<head", "<html"}) {
+            int i = lower.indexOf(open);
+            if (i < 0) continue;
+            int end = i + open.length();
+            // The tag must really be the tag (<header is not <head).
+            if (end < lower.length() && " \t\n\r>/".indexOf(lower.charAt(end)) >= 0) {
+                int close = lower.indexOf('>', end);
+                if (close >= 0) return page.substring(0, close + 1) + tag + page.substring(close + 1);
+            }
+        }
+        if (lower.trim().startsWith("<!doctype")) {
+            int close = lower.indexOf('>');
+            if (close >= 0) return page.substring(0, close + 1) + tag + page.substring(close + 1);
+        }
+        return tag + page;
     }
 }
