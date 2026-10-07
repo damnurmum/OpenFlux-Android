@@ -3798,6 +3798,8 @@ public final class MainActivity extends Activity {
         copy.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, -2, 1f);
         copyParams.leftMargin = dp(12);
+        // Keeps the description off the switch.
+        copyParams.rightMargin = dp(16);
         copy.addView(text(titleValue, 14, text, false));
         copy.addView(text(detailValue, 11, secondary, false));
         row.addView(copy, copyParams);

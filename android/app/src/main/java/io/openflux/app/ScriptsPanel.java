@@ -68,7 +68,7 @@ final class ScriptsPanel {
         LinearLayout toggle = card();
         LinearLayout row = new LinearLayout(host);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(caption("Экспериментальные функции", 15, true), new LinearLayout.LayoutParams(0, -2, 1f));
+        row.addView(caption("Экспериментальные функции", 15, true), textBeside());
         Switch sw = toggle();
         sw.setChecked(on);
         sw.setOnCheckedChangeListener((b, checked) -> setExperimental(checked));
@@ -119,7 +119,7 @@ final class ScriptsPanel {
         names.setOrientation(LinearLayout.VERTICAL);
         names.addView(caption(s.name + (s.official ? "  · OpenFlux" : "  · сторонний"), 15, true));
         names.addView(caption("версия " + (s.version.isEmpty() ? "-" : s.version) + " · " + sourceLabel(s.source), 12, false));
-        top.addView(names, new LinearLayout.LayoutParams(0, -2, 1f));
+        top.addView(names, textBeside());
         Switch enabled = toggle();
         enabled.setChecked(s.enabled);
         enabled.setContentDescription("Включён");
@@ -397,6 +397,13 @@ final class ScriptsPanel {
         Switch toggle = new Switch(host);
         host.styleSwitch(toggle);
         return toggle;
+    }
+
+    // Text next to a switch: the rest of the row, kept off the switch.
+    private LinearLayout.LayoutParams textBeside() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1f);
+        params.rightMargin = dp(16);
+        return params;
     }
 
     private LinearLayout card() {
