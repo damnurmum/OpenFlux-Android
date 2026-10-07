@@ -3358,28 +3358,28 @@ public final class MainActivity extends Activity {
 
     // Material 3 switch: a 56x32 pill track; off, an outlined track with a
     // small thumb; on, a filled track with a large thumb carrying a check.
-    private void styleSwitch(Switch toggle) {
+    void styleSwitch(Switch toggle) {
         // Off state leans toward the accent so the light theme is not a flat grey.
         int off = darkMode ? Color.rgb(140, 147, 160) : tonal(0.55f);
         GradientDrawable trackOn = new GradientDrawable();
-        trackOn.setCornerRadius(dp(16));
+        trackOn.setCornerRadius(dp(14));
         trackOn.setColor(accent);
-        trackOn.setSize(dp(56), dp(32));
+        trackOn.setSize(dp(48), dp(28));
         GradientDrawable trackOff = new GradientDrawable();
-        trackOff.setCornerRadius(dp(16));
+        trackOff.setCornerRadius(dp(14));
         trackOff.setColor(darkMode ? background : tonal(0.07f));
         trackOff.setStroke(dp(2), off);
-        trackOff.setSize(dp(56), dp(32));
+        trackOff.setSize(dp(48), dp(28));
         android.graphics.drawable.StateListDrawable track = new android.graphics.drawable.StateListDrawable();
         track.addState(new int[]{android.R.attr.state_checked}, trackOn);
         track.addState(new int[]{}, trackOff);
         track.setEnterFadeDuration(150);
         track.setExitFadeDuration(150);
 
-        // Both thumbs are 28x32 (the track is twice as wide), so the track
+        // Both thumbs are 24x28 (the track is twice as wide), so the track
         // keeps its shape while the visible circle grows.
-        android.graphics.drawable.Drawable thumbOn = switchThumb(dp(12), Color.WHITE, accent);
-        android.graphics.drawable.Drawable thumbOff = switchThumb(dp(8), off, 0);
+        android.graphics.drawable.Drawable thumbOn = switchThumb(dp(10), Color.WHITE, accent);
+        android.graphics.drawable.Drawable thumbOff = switchThumb(dp(7), off, 0);
         android.graphics.drawable.StateListDrawable thumb = new android.graphics.drawable.StateListDrawable();
         thumb.addState(new int[]{android.R.attr.state_checked}, thumbOn);
         thumb.addState(new int[]{}, thumbOff);
@@ -3390,12 +3390,12 @@ public final class MainActivity extends Activity {
         toggle.setThumbDrawable(thumb);
         toggle.setTrackTintList(null);
         toggle.setThumbTintList(null);
-        toggle.setSwitchMinWidth(dp(56));
+        toggle.setSwitchMinWidth(dp(48));
         toggle.setShowText(false);
         toggle.setBackground(null);
     }
 
-    // A switch thumb: a circle of the given radius centered in 28x32, with
+    // A switch thumb: a circle of the given radius centered in 24x28, with
     // a check drawn in checkColor when that is not 0.
     private android.graphics.drawable.Drawable switchThumb(float radius, int fill, int checkColor) {
         return new android.graphics.drawable.Drawable() {
@@ -3419,8 +3419,8 @@ public final class MainActivity extends Activity {
                 paint.setColor(checkColor);
                 canvas.drawPath(path, paint);
             }
-            @Override public int getIntrinsicWidth() { return dp(28); }
-            @Override public int getIntrinsicHeight() { return dp(32); }
+            @Override public int getIntrinsicWidth() { return dp(24); }
+            @Override public int getIntrinsicHeight() { return dp(28); }
             @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
             @Override public void setColorFilter(android.graphics.ColorFilter filter) { }
             @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }

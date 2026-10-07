@@ -41,7 +41,7 @@ final class ScriptsPanel {
     // One job at a time, shared by every panel the settings page builds.
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
 
-    private final Activity host;
+    private final MainActivity host;
     private final Map<String, JSONObject> reports = new HashMap<>();
     private final FlowStyle ui;
     private final ScriptStore store;
@@ -49,7 +49,7 @@ final class ScriptsPanel {
     private String pendingKey = "";
     private boolean busy;
 
-    ScriptsPanel(Activity host) {
+    ScriptsPanel(MainActivity host) {
         this.host = host;
         ui = new FlowStyle(host);
         store = new ScriptStore(host);
@@ -69,7 +69,7 @@ final class ScriptsPanel {
         LinearLayout row = new LinearLayout(host);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(caption("Экспериментальные функции", 15, true), new LinearLayout.LayoutParams(0, -2, 1f));
-        Switch sw = new Switch(host);
+        Switch sw = toggle();
         sw.setChecked(on);
         sw.setOnCheckedChangeListener((b, checked) -> setExperimental(checked));
         row.addView(sw);
@@ -120,7 +120,7 @@ final class ScriptsPanel {
         names.addView(caption(s.name + (s.official ? "  · OpenFlux" : "  · сторонний"), 15, true));
         names.addView(caption("версия " + (s.version.isEmpty() ? "-" : s.version) + " · " + sourceLabel(s.source), 12, false));
         top.addView(names, new LinearLayout.LayoutParams(0, -2, 1f));
-        Switch enabled = new Switch(host);
+        Switch enabled = toggle();
         enabled.setChecked(s.enabled);
         enabled.setContentDescription("Включён");
         enabled.setOnCheckedChangeListener((b, checked) -> store.setEnabled(s.id, checked));
@@ -390,6 +390,13 @@ final class ScriptsPanel {
                 else if (done instanceof String) Toast.makeText(host, (String) done, Toast.LENGTH_LONG).show();
             });
         });
+    }
+
+    // The app's own switch, as on the other settings tabs.
+    private Switch toggle() {
+        Switch toggle = new Switch(host);
+        host.styleSwitch(toggle);
+        return toggle;
     }
 
     private LinearLayout card() {
