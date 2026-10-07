@@ -4,19 +4,14 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Intent;
-import android.graphics.Insets;
 import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
 import android.text.InputType;
 import android.util.Log;
 import android.view.Gravity;
-import android.view.WindowInsets;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.ImageButton;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -35,85 +30,46 @@ import java.util.concurrent.Executors;
 
 import io.openflux.bridge.mobile.Mobile;
 
-// «JS-транспорты»: the experimental-features switch, importing a signed
+// Settings → «JS-транспорты»: the experimental-features switch, importing a signed
 // script transport (link or file) after the user checks its author, and the
 // installed ones with their updates. Every trust decision is the core's
 // (InspectTransport, Check/Apply/RollbackScriptUpdate); this screen only asks
 // and shows. Ported from upstream's ScriptsScreen.
-public final class ScriptsActivity extends Activity {
-    private static final int PICK_FILE = 4101;
+final class ScriptsPanel {
+    static final int PICK_FILE = 4101;
     private static final int MAX_DOWNLOAD = 8 << 20;
+    // One job at a time, shared by every panel the settings page builds.
+    private static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
 
-    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final Activity host;
     private final Map<String, JSONObject> reports = new HashMap<>();
-    private FlowStyle ui;
-    private ScriptStore store;
-    private LinearLayout page;
+    private final FlowStyle ui;
+    private final ScriptStore store;
+    private final LinearLayout page;
     private String pendingKey = "";
     private boolean busy;
 
-    @Override protected void onCreate(Bundle state) {
-        super.onCreate(state);
-        ui = new FlowStyle(this);
-        ui.applyWindow();
-        store = new ScriptStore(this);
-
-        LinearLayout shell = new LinearLayout(this);
-        shell.setOrientation(LinearLayout.VERTICAL);
-        shell.setBackgroundColor(ui.background);
-        shell.setPadding(dp(20), dp(16), dp(20), 0);
-        LinearLayout header = new LinearLayout(this);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        ImageButton back = new ImageButton(this);
-        back.setImageResource(R.drawable.ic_arrow_back);
-        back.setColorFilter(ui.text);
-        back.setBackground(null);
-        back.setContentDescription("Назад");
-        back.setOnClickListener(v -> finish());
-        header.addView(back, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        TextView title = new TextView(this);
-        title.setText("JS-транспорты");
-        title.setTextSize(22);
-        ui.heading(title);
-        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -2, 1f);
-        titleParams.leftMargin = dp(6);
-        header.addView(title, titleParams);
-        shell.addView(header, new LinearLayout.LayoutParams(-1, dp(54)));
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.setClipToPadding(false);
-        scroll.setPadding(0, dp(12), 0, dp(24));
-        page = new LinearLayout(this);
+    ScriptsPanel(Activity host) {
+        this.host = host;
+        ui = new FlowStyle(host);
+        store = new ScriptStore(host);
+        page = new LinearLayout(host);
         page.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(page);
-        shell.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
-        if (Build.VERSION.SDK_INT >= 30) {
-            shell.setOnApplyWindowInsetsListener((v, insets) -> {
-                Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.ime());
-                v.setPadding(dp(20) + bars.left, dp(16) + bars.top, dp(20) + bars.right, bars.bottom);
-                return WindowInsets.CONSUMED;
-            });
-        } else {
-            shell.setFitsSystemWindows(true);
-        }
-        setContentView(shell);
         render();
     }
 
-    @Override protected void onDestroy() {
-        worker.shutdownNow();
-        super.onDestroy();
-    }
+    // The settings tab's content; MainActivity puts it in its own scroll.
+    View view() { return page; }
 
     private void render() {
         page.removeAllViews();
-        boolean on = ScriptStore.experimental(this);
+        boolean on = ScriptStore.experimental(host);
 
         LinearLayout toggle = card();
-        LinearLayout row = new LinearLayout(this);
+        LinearLayout row = new LinearLayout(host);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(caption("Экспериментальные функции", 15, true), new LinearLayout.LayoutParams(0, -2, 1f));
-        Switch sw = new Switch(this);
+        Switch sw = new Switch(host);
         sw.setChecked(on);
         sw.setOnCheckedChangeListener((b, checked) -> setExperimental(checked));
         row.addView(sw);
@@ -123,7 +79,7 @@ public final class ScriptsActivity extends Activity {
         page.addView(toggle, spaced());
         if (!on) return;
 
-        LinearLayout actions = new LinearLayout(this);
+        LinearLayout actions = new LinearLayout(host);
         actions.addView(button("Импортировать", true, this::showImport), new LinearLayout.LayoutParams(0, dp(46), 1f));
         LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(0, dp(46), 1f);
         checkParams.leftMargin = dp(8);
@@ -141,7 +97,7 @@ public final class ScriptsActivity extends Activity {
     }
 
     private void setExperimental(boolean on) {
-        getSharedPreferences(MainActivity.SETTINGS_PREFS_NAME, MODE_PRIVATE).edit()
+        host.getSharedPreferences(MainActivity.SETTINGS_PREFS_NAME, Activity.MODE_PRIVATE).edit()
                 .putBoolean(ScriptStore.KEY_EXPERIMENTAL, on).apply();
         if (!on) {
             render();
@@ -150,21 +106,21 @@ public final class ScriptsActivity extends Activity {
         run("Устанавливаю встроенные транспорты…", () -> {
             store.syncBundled();
             Log.i(ScriptStore.TAG, "engine available=" + Mobile.scriptEngineAvailable()
-                    + " selftest=" + Mobile.scriptEngineSelfTest(getCacheDir().getAbsolutePath()));
+                    + " selftest=" + Mobile.scriptEngineSelfTest(host.getCacheDir().getAbsolutePath()));
             return null;
         });
     }
 
     private LinearLayout scriptCard(ScriptStore.Script s) {
         LinearLayout card = card();
-        LinearLayout top = new LinearLayout(this);
+        LinearLayout top = new LinearLayout(host);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout names = new LinearLayout(this);
+        LinearLayout names = new LinearLayout(host);
         names.setOrientation(LinearLayout.VERTICAL);
         names.addView(caption(s.name + (s.official ? "  · OpenFlux" : "  · сторонний"), 15, true));
         names.addView(caption("версия " + (s.version.isEmpty() ? "-" : s.version) + " · " + sourceLabel(s.source), 12, false));
         top.addView(names, new LinearLayout.LayoutParams(0, -2, 1f));
-        Switch enabled = new Switch(this);
+        Switch enabled = new Switch(host);
         enabled.setChecked(s.enabled);
         enabled.setContentDescription("Включён");
         enabled.setOnCheckedChangeListener((b, checked) -> store.setEnabled(s.id, checked));
@@ -177,8 +133,8 @@ public final class ScriptsActivity extends Activity {
         }
         TextView fingerprint = caption("Отпечаток ключа: " + s.shortFingerprint() + "  (нажмите, чтобы скопировать)", 12, false);
         fingerprint.setOnClickListener(v -> {
-            getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("fingerprint", s.fingerprint));
-            Toast.makeText(this, "Отпечаток скопирован", Toast.LENGTH_SHORT).show();
+            host.getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("fingerprint", s.fingerprint));
+            Toast.makeText(host, "Отпечаток скопирован", Toast.LENGTH_SHORT).show();
         });
         card.addView(fingerprint);
 
@@ -191,7 +147,7 @@ public final class ScriptsActivity extends Activity {
                 card.addView(caption(updateFailure(report.optString("code")), 12, false));
             }
         }
-        LinearLayout row = new LinearLayout(this);
+        LinearLayout row = new LinearLayout(host);
         if (store.hasPrevious(s)) {
             row.addView(button("Вернуть прошлую", false, () -> rollback(s)), new LinearLayout.LayoutParams(0, dp(42), 1f));
         }
@@ -212,7 +168,7 @@ public final class ScriptsActivity extends Activity {
     // ---- import ----
 
     private void showImport() {
-        LinearLayout form = new LinearLayout(this);
+        LinearLayout form = new LinearLayout(host);
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(20), dp(8), dp(20), 0);
         EditText url = input("Ссылка на .flux или .js (GitHub raw)", InputType.TYPE_TEXT_VARIATION_URI);
@@ -226,13 +182,13 @@ public final class ScriptsActivity extends Activity {
                 .setNeutralButton("Из файла", (d, w) -> {
                     pendingKey = key.getText().toString().trim();
                     Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
-                    startActivityForResult(pick, PICK_FILE);
+                    host.startActivityForResult(pick, PICK_FILE);
                 })
                 .setPositiveButton("Скачать", (d, w) -> {
                     String link = url.getText().toString().trim();
                     String author = key.getText().toString().trim();
                     if (!link.startsWith("https://") && !link.startsWith("http://")) {
-                        Toast.makeText(this, "Укажите ссылку http(s)", Toast.LENGTH_LONG).show();
+                        Toast.makeText(host, "Укажите ссылку http(s)", Toast.LENGTH_LONG).show();
                         return;
                     }
                     run("Скачиваю…", () -> {
@@ -244,17 +200,19 @@ public final class ScriptsActivity extends Activity {
                 .show();
     }
 
-    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != PICK_FILE || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+    // MainActivity hands every result here first; true when it was this panel's.
+    boolean onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (requestCode != PICK_FILE) return false;
+        if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) return true;
         Uri uri = data.getData();
         String author = pendingKey;
         run("Читаю файл…", () -> {
-            try (InputStream in = getContentResolver().openInputStream(uri)) {
+            try (InputStream in = host.getContentResolver().openInputStream(uri)) {
                 if (in == null) throw new IOException("файл не открывается");
                 return new Candidate(ScriptStore.readAll(in), new byte[0], author, "file", uri.toString());
             }
         });
+        return true;
     }
 
     // A downloaded or picked transport waiting for the user's trust.
@@ -274,7 +232,7 @@ public final class ScriptsActivity extends Activity {
     private void showTrust(Candidate c) {
         JSONObject r = store.inspect(c.data, c.sig, c.key);
         if (r == null || !r.optBoolean("ok")) {
-            Toast.makeText(this, "Не удалось прочитать транспорт: "
+            Toast.makeText(host, "Не удалось прочитать транспорт: "
                     + (r == null ? "ядро ответило не JSON" : r.optString("error")), Toast.LENGTH_LONG).show();
             return;
         }
@@ -415,8 +373,8 @@ public final class ScriptsActivity extends Activity {
     private void run(String progress, Job job) {
         if (busy) return;
         busy = true;
-        Toast.makeText(this, progress, Toast.LENGTH_SHORT).show();
-        worker.execute(() -> {
+        Toast.makeText(host, progress, Toast.LENGTH_SHORT).show();
+        WORKER.execute(() -> {
             Object result;
             try {
                 result = job.run();
@@ -424,18 +382,18 @@ public final class ScriptsActivity extends Activity {
                 result = "Не получилось: " + e.getMessage();
             }
             Object done = result;
-            runOnUiThread(() -> {
+            host.runOnUiThread(() -> {
                 busy = false;
-                if (isFinishing()) return;
+                if (host.isFinishing()) return;
                 render();
                 if (done instanceof Candidate) showTrust((Candidate) done);
-                else if (done instanceof String) Toast.makeText(this, (String) done, Toast.LENGTH_LONG).show();
+                else if (done instanceof String) Toast.makeText(host, (String) done, Toast.LENGTH_LONG).show();
             });
         });
     }
 
     private LinearLayout card() {
-        LinearLayout card = new LinearLayout(this);
+        LinearLayout card = new LinearLayout(host);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackground(ui.rounded(ui.surface, ui.border, 12));
         card.setPadding(dp(14), dp(12), dp(14), dp(12));
@@ -443,7 +401,7 @@ public final class ScriptsActivity extends Activity {
     }
 
     private TextView caption(String value, int size, boolean strong) {
-        TextView view = new TextView(this);
+        TextView view = new TextView(host);
         view.setText(value);
         view.setTextSize(size);
         if (strong) ui.heading(view);
@@ -453,7 +411,7 @@ public final class ScriptsActivity extends Activity {
     }
 
     private Button button(String label, boolean primary, Runnable action) {
-        Button button = new Button(this);
+        Button button = new Button(host);
         button.setText(label);
         button.setAllCaps(false);
         if (primary) ui.primary(button);
@@ -463,7 +421,7 @@ public final class ScriptsActivity extends Activity {
     }
 
     private EditText input(String hint, int variation) {
-        EditText input = new EditText(this);
+        EditText input = new EditText(host);
         input.setHint(hint);
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_TEXT | variation);

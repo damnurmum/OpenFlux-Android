@@ -118,7 +118,6 @@ public final class MainActivity extends Activity {
     private static final int NOTIFICATION_PERMISSION_REQUEST = 43;
     private static final int NODE_WIZARD_REQUEST = 44;
     private static final int QR_IMAGE_REQUEST = 45;
-    private static final int SCRIPTS_REQUEST = 46;
     private static final int SCRIPT_SETTINGS_REQUEST = 47;
     private static final int DEFAULT_MTU = 1400;
     private static final int PAGE_HOME = 0;
@@ -134,6 +133,7 @@ public final class MainActivity extends Activity {
     private static final int SETTINGS_INTERFACE = 3;
     private static final int SETTINGS_ABOUT = 4;
     private static final int SETTINGS_ROUTING = 5;
+    private static final int SETTINGS_SCRIPTS = 6;
     private static final String MODE_TUNNEL = "tunnel";
     private static final String MODE_PROXY = "proxy";
     // The phone serves as an l4 exit node for other clients.
@@ -220,6 +220,7 @@ public final class MainActivity extends Activity {
     private String editorScriptId = "";
     private JSONObject editorSettings = new JSONObject();
     private View scriptSettingsButton;
+    private ScriptsPanel scriptsPanel;
     // A settings page in flight: what the script declares, where the answer goes.
     private java.util.Set<String> pendingSettingsKeys;
     private String pendingSettingsPrimary = "";
@@ -1655,7 +1656,8 @@ public final class MainActivity extends Activity {
             return page;
         }
 
-        boolean showSave = settingsSubTab != SETTINGS_ABOUT;
+        // The scripts tab acts at once, like the about tab has nothing to save.
+        boolean showSave = settingsSubTab != SETTINGS_ABOUT && settingsSubTab != SETTINGS_SCRIPTS;
         LinearLayout.LayoutParams contentParams = new LinearLayout.LayoutParams(-1, 0, 1f);
         contentParams.topMargin = dp(16);
         if (!showSave) contentParams.bottomMargin = dp(10);
@@ -1728,6 +1730,7 @@ public final class MainActivity extends Activity {
             case SETTINGS_ROUTING: return "Маршрутизация";
             case SETTINGS_INTERFACE: return "Вид";
             case SETTINGS_ABOUT: return "О проекте";
+            case SETTINGS_SCRIPTS: return "JS-транспорты";
             case SETTINGS_MODE:
             default: return "Режим работы";
         }
@@ -1751,13 +1754,9 @@ public final class MainActivity extends Activity {
                 "Сайты и сервисы в обход туннеля", SETTINGS_ROUTING));
         list.addView(settingsListRow(R.drawable.ic_dark_mode, "Вид",
                 "Тема и автопрокрутка логов", SETTINGS_INTERFACE));
-        View scripts = settingsListRow(R.drawable.ic_code, "JS-транспорты",
-                ScriptStore.experimental(this) ? "Экспериментально: включены" : "Экспериментально: выключены", -1);
-        scripts.setOnClickListener(v -> {
-            bounce(v);
-            startActivityForResult(new Intent(this, ScriptsActivity.class), SCRIPTS_REQUEST);
-        });
-        list.addView(scripts);
+        list.addView(settingsListRow(R.drawable.ic_code, "JS-транспорты",
+                ScriptStore.experimental(this) ? "Экспериментально: включены" : "Экспериментально: выключены",
+                SETTINGS_SCRIPTS));
         list.addView(settingsListRow(R.drawable.ic_info, "О проекте",
                 "Репозитории проекта", SETTINGS_ABOUT));
         groupTiles(list);
@@ -1811,6 +1810,9 @@ public final class MainActivity extends Activity {
                 return wrapScroll(buildInterfaceSettings());
             case SETTINGS_ABOUT:
                 return wrapScroll(buildAboutSettings());
+            case SETTINGS_SCRIPTS:
+                scriptsPanel = new ScriptsPanel(this);
+                return wrapScroll(scriptsPanel.view());
             case SETTINGS_MODE:
             default:
                 return wrapScroll(buildModeSettings());
@@ -4121,7 +4123,7 @@ public final class MainActivity extends Activity {
             if (scan.getContents() != null) importShareLink(scan.getContents());
             return;
         }
-        if (requestCode == SCRIPTS_REQUEST && currentPage == PAGE_SETTINGS) showPage(PAGE_SETTINGS);
+        if (scriptsPanel != null && scriptsPanel.onActivityResult(requestCode, resultCode, data)) return;
         if (requestCode == SCRIPT_SETTINGS_REQUEST) {
             onScriptSettings(resultCode == RESULT_OK && data != null
                     ? data.getStringExtra(CaptchaActivity.EXTRA_SUBMITTED) : null);

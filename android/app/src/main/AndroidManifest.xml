@@ -63,11 +63,6 @@
             android:exported="false" />
 
         <activity
-            android:name=".ScriptsActivity"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|keyboardHidden" />
-
-        <activity
             android:name=".NodeWizardActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden" />
