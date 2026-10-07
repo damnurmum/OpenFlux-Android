@@ -2891,43 +2891,74 @@ public final class MainActivity extends Activity {
     }
 
     private View buildTransportTypeSelector() {
-        List<String> types = new ArrayList<>(java.util.Arrays.asList("yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme"));
-        List<String[]> labels = new ArrayList<>(java.util.Arrays.asList(new String[][]{
+        String[] builtIn = {"yandex", "vyandex", "boards", "mailru", "cupsonline", "oneme"};
+        String[][] builtInLabels = {
                 {"Yandex Docs", "Документ Яндекса"},
                 {"Yandex Docs (Volga)", "Экспериментальный"},
                 {"Yandex Board", "Доска Яндекса, экспериментальный"},
                 {"Mail.ru Docs", "Документ в Облаке Mail.ru"},
                 {"Cups.online", "Комнаты live-coding, код комнат с ноды"},
                 {"MAX (OneMe)", "Звонок MAX, нужен Web token"},
-        }));
-        List<Integer> icons = new ArrayList<>(java.util.Arrays.asList(R.drawable.ic_yandex, R.drawable.ic_yandex,
-                R.drawable.ic_yandex, R.drawable.ic_mailru, R.drawable.ic_code, R.drawable.ic_max));
-        // Installed JS transports, as "script:<id>", in a group of their own.
-        int split = types.size();
-        for (ScriptStore.Script script : new ScriptStore(this).usable()) {
-            types.add("script:" + script.id);
-            labels.add(new String[]{script.name, (script.official ? "Подписан OpenFlux" : "Сторонний автор")
-                    + " · версия " + script.version});
-            icons.add(R.drawable.ic_code);
-        }
-        if (split == types.size()) split = -1;
-        String selectedKey = "script".equals(editorTransportType) ? "script:" + editorScriptId : editorTransportType;
-        int current = Math.max(0, types.indexOf(selectedKey));
-        int[] iconArray = new int[icons.size()];
-        for (int i = 0; i < iconArray.length; i++) iconArray[i] = icons.get(i);
-        return choiceList(labels.toArray(new String[0][]), iconArray, current, i -> {
-            String picked = types.get(i);
-            String pickedScript = picked.startsWith("script:") ? picked.substring("script:".length()) : "";
-            if (!pickedScript.equals(editorScriptId)) editorSettings = new JSONObject();
-            editorScriptId = pickedScript;
-            editorTransportType = pickedScript.isEmpty() ? picked : "script";
-            updateScriptSettingsButton();
-            if (maxFieldsContainer != null) {
-                maxFieldsContainer.setVisibility("oneme".equals(editorTransportType) ? View.VISIBLE : View.GONE);
+        };
+        int[] builtInIcons = {R.drawable.ic_yandex, R.drawable.ic_yandex, R.drawable.ic_yandex,
+                R.drawable.ic_mailru, R.drawable.ic_code, R.drawable.ic_max};
+        List<ScriptStore.Script> scripts = new ScriptStore(this).usable();
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        FrameLayout list = new FrameLayout(this);
+        // Shows one tab's list, its row checked only when it holds the
+        // selection; the other tab is rebuilt when switched to.
+        java.util.function.IntConsumer show = tab -> {
+            list.removeAllViews();
+            if (tab == 0) {
+                int current = java.util.Arrays.asList(builtIn).indexOf(editorTransportType);
+                list.addView(choiceList(builtInLabels, builtInIcons, current, i -> pickTransport(builtIn[i], "")));
+                return;
             }
-            setFloatingLabel(urlInput, editorValueLabel());
-            if (urlField != null) urlField.setVisibility("oneme".equals(editorTransportType) ? View.GONE : View.VISIBLE);
-        }, split, "ВСТРОЕННЫЕ", "JAVASCRIPT · ТОЛЬКО SESSION");
+            String[][] labels = new String[scripts.size()][];
+            int[] icons = new int[scripts.size()];
+            int current = -1;
+            for (int i = 0; i < labels.length; i++) {
+                ScriptStore.Script script = scripts.get(i);
+                labels[i] = new String[]{script.name, (script.official ? "Подписан OpenFlux" : "Сторонний автор")
+                        + " · версия " + script.version};
+                icons[i] = R.drawable.ic_code;
+                if ("script".equals(editorTransportType) && script.id.equals(editorScriptId)) current = i;
+            }
+            LinearLayout js = new LinearLayout(this);
+            js.setOrientation(LinearLayout.VERTICAL);
+            js.addView(choiceList(labels, icons, current, i -> pickTransport("script", scripts.get(i).id)));
+            TextView hint = text("Работают только в режиме Session. Установить свои: «Настройки» → «JS-транспорты».",
+                    11, secondary, false);
+            LinearLayout.LayoutParams hintParams = matchWrap();
+            hintParams.topMargin = dp(6);
+            hintParams.leftMargin = dp(4);
+            js.addView(hint, hintParams);
+            list.addView(js);
+        };
+        boolean scriptTab = "script".equals(editorTransportType);
+        // The tabs only once there is a JS transport to offer.
+        if (!scripts.isEmpty()) {
+            LinearLayout.LayoutParams tabsParams = matchWrap();
+            tabsParams.bottomMargin = dp(10);
+            box.addView(segmented(new String[]{"Встроенные", "JavaScript"}, scriptTab ? 1 : 0, show), tabsParams);
+        }
+        show.accept(scriptTab && !scripts.isEmpty() ? 1 : 0);
+        box.addView(list, matchWrap());
+        return box;
+    }
+
+    private void pickTransport(String type, String scriptId) {
+        if (!scriptId.equals(editorScriptId)) editorSettings = new JSONObject();
+        editorScriptId = scriptId;
+        editorTransportType = type;
+        updateScriptSettingsButton();
+        if (maxFieldsContainer != null) {
+            maxFieldsContainer.setVisibility("oneme".equals(editorTransportType) ? View.VISIBLE : View.GONE);
+        }
+        setFloatingLabel(urlInput, editorValueLabel());
+        if (urlField != null) urlField.setVisibility("oneme".equals(editorTransportType) ? View.GONE : View.VISIBLE);
     }
 
     // MAX (OneMe) authenticates via a web token + numeric user id instead of
@@ -3398,14 +3429,6 @@ public final class MainActivity extends Activity {
     // large outer corners and small inner ones, the picked tile gets a tonal
     // fill and a check. options[i] is {title} or {title, subtitle}.
     private View choiceList(String[][] options, int[] icons, int selected, java.util.function.IntConsumer onPick) {
-        return choiceList(options, icons, selected, onPick, -1, null, null);
-    }
-
-    // With split >= 0 the options form two groups, each under its own heading
-    // (firstHeading over 0..split-1, splitHeading from split on), one selection
-    // across both.
-    private View choiceList(String[][] options, int[] icons, int selected, java.util.function.IntConsumer onPick,
-            int split, String firstHeading, String splitHeading) {
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         int n = options.length;
@@ -3416,7 +3439,7 @@ public final class MainActivity extends Activity {
         Runnable paint = () -> {
             for (int i = 0; i < n; i++) {
                 boolean on = i == current[0];
-                float top = dp(i == 0 || i == split ? 20 : 6), bottom = dp(i == n - 1 || i == split - 1 ? 20 : 6);
+                float top = dp(i == 0 ? 20 : 6), bottom = dp(i == n - 1 ? 20 : 6);
                 rows[i].setBackground(tile(on ? tonal(0.18f) : surface, on ? tonal(0.45f) : border,
                         new float[]{top, top, top, top, bottom, bottom, bottom, bottom}));
                 titles[i].setTextColor(on ? accent : text);
@@ -3462,14 +3485,8 @@ public final class MainActivity extends Activity {
                 onPick.accept(index);
             });
             rows[i] = row;
-            if (split >= 0 && (i == 0 || i == split)) {
-                LinearLayout.LayoutParams headingParams = matchWrap();
-                headingParams.topMargin = dp(i == 0 ? 0 : 14);
-                headingParams.bottomMargin = dp(8);
-                list.addView(label(i == 0 ? firstHeading : splitHeading), headingParams);
-            }
             LinearLayout.LayoutParams params = matchWrap();
-            if (i > 0 && i != split) params.topMargin = dp(2);
+            if (i > 0) params.topMargin = dp(2);
             list.addView(row, params);
         }
         paint.run();
