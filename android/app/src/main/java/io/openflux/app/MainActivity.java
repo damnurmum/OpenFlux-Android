@@ -2902,13 +2902,15 @@ public final class MainActivity extends Activity {
         }));
         List<Integer> icons = new ArrayList<>(java.util.Arrays.asList(R.drawable.ic_yandex, R.drawable.ic_yandex,
                 R.drawable.ic_yandex, R.drawable.ic_mailru, R.drawable.ic_code, R.drawable.ic_max));
-        // Installed JS transports, as "script:<id>" (Session only).
+        // Installed JS transports, as "script:<id>", in a group of their own.
+        int split = types.size();
         for (ScriptStore.Script script : new ScriptStore(this).usable()) {
             types.add("script:" + script.id);
-            labels.add(new String[]{"JS: " + script.name, (script.official ? "OpenFlux" : "Сторонний")
-                    + ", версия " + script.version + ", только Session"});
+            labels.add(new String[]{script.name, (script.official ? "Подписан OpenFlux" : "Сторонний автор")
+                    + " · версия " + script.version});
             icons.add(R.drawable.ic_code);
         }
+        if (split == types.size()) split = -1;
         String selectedKey = "script".equals(editorTransportType) ? "script:" + editorScriptId : editorTransportType;
         int current = Math.max(0, types.indexOf(selectedKey));
         int[] iconArray = new int[icons.size()];
@@ -2925,7 +2927,7 @@ public final class MainActivity extends Activity {
             }
             setFloatingLabel(urlInput, editorValueLabel());
             if (urlField != null) urlField.setVisibility("oneme".equals(editorTransportType) ? View.GONE : View.VISIBLE);
-        });
+        }, split, "ВСТРОЕННЫЕ", "JAVASCRIPT · ТОЛЬКО SESSION");
     }
 
     // MAX (OneMe) authenticates via a web token + numeric user id instead of
@@ -3396,6 +3398,14 @@ public final class MainActivity extends Activity {
     // large outer corners and small inner ones, the picked tile gets a tonal
     // fill and a check. options[i] is {title} or {title, subtitle}.
     private View choiceList(String[][] options, int[] icons, int selected, java.util.function.IntConsumer onPick) {
+        return choiceList(options, icons, selected, onPick, -1, null, null);
+    }
+
+    // With split >= 0 the options form two groups, each under its own heading
+    // (firstHeading over 0..split-1, splitHeading from split on), one selection
+    // across both.
+    private View choiceList(String[][] options, int[] icons, int selected, java.util.function.IntConsumer onPick,
+            int split, String firstHeading, String splitHeading) {
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         int n = options.length;
@@ -3406,7 +3416,7 @@ public final class MainActivity extends Activity {
         Runnable paint = () -> {
             for (int i = 0; i < n; i++) {
                 boolean on = i == current[0];
-                float top = dp(i == 0 ? 20 : 6), bottom = dp(i == n - 1 ? 20 : 6);
+                float top = dp(i == 0 || i == split ? 20 : 6), bottom = dp(i == n - 1 || i == split - 1 ? 20 : 6);
                 rows[i].setBackground(tile(on ? tonal(0.18f) : surface, on ? tonal(0.45f) : border,
                         new float[]{top, top, top, top, bottom, bottom, bottom, bottom}));
                 titles[i].setTextColor(on ? accent : text);
@@ -3452,8 +3462,14 @@ public final class MainActivity extends Activity {
                 onPick.accept(index);
             });
             rows[i] = row;
+            if (split >= 0 && (i == 0 || i == split)) {
+                LinearLayout.LayoutParams headingParams = matchWrap();
+                headingParams.topMargin = dp(i == 0 ? 0 : 14);
+                headingParams.bottomMargin = dp(8);
+                list.addView(label(i == 0 ? firstHeading : splitHeading), headingParams);
+            }
             LinearLayout.LayoutParams params = matchWrap();
-            if (i > 0) params.topMargin = dp(2);
+            if (i > 0 && i != split) params.topMargin = dp(2);
             list.addView(row, params);
         }
         paint.run();
