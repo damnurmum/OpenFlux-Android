@@ -19,20 +19,16 @@
   <p><a href="README.md">English</a> · <strong>Русский</strong></p>
 </div>
 
-> Этот репозиторий - экспериментальный, независимо поддерживаемый форк
-> [p1neappleXpress/OpenFlux](https://github.com/p1neappleXpress/OpenFlux),
-> добавляющий нативный Android-клиент туннеля поверх апстримного ядра
-> (транспорты + выходная нода). Что именно меняет форк - см.
-> [docs/ru/FORK.md](docs/ru/FORK.md). `main` остаётся wire-совместимым с текущими
-> бинарниками exit-node/клиента апстрима; отдельная ветка `experimental`
-> несёт дополнительные фичи (график пинга, страна выходной ноды, серверный
-> DNS-релей), которым нужна собственная выходная нода этого форка - см.
-> [docs/ru/UPSTREAM_DIFF.md](docs/ru/UPSTREAM_DIFF.md).
-
 OpenFlux - исследовательский TCP-туннель, маскирующий трафик под сессию
 совместного редактирования документа (Yandex Docs, Mail.ru Docs, Cups.online,
-MAX) вместо обычного VPN-протокола. Этот форк добавляет Android-клиент для
-такого туннеля и опциональное сквозное шифрование AES-256-GCM поверх него.
+MAX) вместо обычного VPN-протокола. OpenFlux Android - приложение для него:
+клиент в режиме туннеля или SOCKS5-прокси, выходная нода прямо на телефоне и
+мастер, который ставит выходные ноды на ваш сервер.
+
+Приложение работает на ядре OpenFlux
+([p1neappleXpress/OpenFlux](https://github.com/p1neappleXpress/OpenFlux)),
+которое подключено без изменений сабмодулем `core/`, поэтому оно сразу
+совместимо с выходными нодами и десктопными клиентами ядра.
 
 **[Скачать последний релиз для Android](https://github.com/damnurmum/OpenFlux-Android/releases/latest)**
 
@@ -312,14 +308,11 @@ gomobile init
 ```
 OpenFlux-Android/
   core/                            # Апстрим OpenFlux (сабмодуль): CLI, транспорты, туннель, мост mobile/
-  android/                         # Android-клиент туннеля (добавление этого форка)
+  android/                         # Приложение для Android
   build_android_app.sh             # Сборка Android APK поверх core/mobile
   deploy/openflux.service          # Пример systemd-юнита для выходной ноды
-  docs/                            # Документация форка
+  docs/                            # Руководства и документация проекта
 ```
-
-Собственное ядро форка, каким оно было до перехода на сабмодуль апстрима,
-лежит в ветке [`fork-core`](https://github.com/damnurmum/OpenFlux-Android/tree/fork-core).
 
 ## Разработка и безопасность
 
@@ -336,10 +329,10 @@ git add core && git commit -m "core: update to upstream <commit>"
 Как контрибьютить - в [docs/ru/CONTRIBUTING.md](docs/ru/CONTRIBUTING.md).
 Пожалуйста, прочитайте [docs/ru/SECURITY.md](docs/ru/SECURITY.md) перед тем, как
 сообщать об уязвимости. Список изменений - в
-[docs/ru/CHANGELOG.md](docs/ru/CHANGELOG.md).
+[заметках к релизам](https://github.com/damnurmum/OpenFlux-Android/releases).
 
 ## Лицензия
 
 OpenFlux распространяется под лицензией GNU General Public License v3.0 или
 новее. См. [LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT) и [NOTICE](NOTICE).
-Этот форк не одобрен и не аффилирован с Яндексом или Mail.ru.
+Приложение не одобрено Яндексом или Mail.ru и не связано с ними.

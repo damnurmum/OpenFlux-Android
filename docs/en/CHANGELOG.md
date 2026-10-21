@@ -1,6 +1,7 @@
 # Changelog
 
-All notable changes to this fork are documented here.
+Changes up to 2026-09-16. Later changes are in the
+[release notes](https://github.com/damnurmum/OpenFlux-Android/releases).
 
 ## 0.7.0 - 2026-09-16
 

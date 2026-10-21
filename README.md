@@ -19,19 +19,16 @@
   <p><strong>English</strong> · <a href="README.ru.md">Русский</a></p>
 </div>
 
-> This repository is an experimental, independently maintained fork of
-> [p1neappleXpress/OpenFlux](https://github.com/p1neappleXpress/OpenFlux),
-> adding a native Android tunnel client on top of upstream's exit-node/transport
-> core. See [docs/en/FORK.md](docs/en/FORK.md) for what this fork changes. `main`
-> stays wire-compatible with current upstream exit-node/client binaries; a
-> separate `experimental` branch carries additional features (ping graph,
-> exit-node country, server-side DNS relay) that need this fork's own exit
-> node - see [docs/en/UPSTREAM_DIFF.md](docs/en/UPSTREAM_DIFF.md).
-
 OpenFlux is a research TCP tunnel that disguises traffic as a collaborative
 document-editing session (Yandex Docs, Mail.ru Docs, Cups.online, MAX) instead
-of a conventional VPN protocol. This fork adds an Android client for that
-tunnel and optional end-to-end AES-256-GCM encryption on top of it.
+of a conventional VPN protocol. OpenFlux Android is the app for it: a tunnel or
+SOCKS5 proxy client, an exit node right on the phone, and a wizard that sets up
+exit nodes on your own server.
+
+The app runs on the OpenFlux core
+([p1neappleXpress/OpenFlux](https://github.com/p1neappleXpress/OpenFlux)),
+included unchanged as the `core/` submodule, so it works out of the box with
+the core's exit nodes and desktop clients.
 
 **[Download the latest Android release](https://github.com/damnurmum/OpenFlux-Android/releases/latest)**
 
@@ -305,14 +302,11 @@ See [android/README.md](android/README.md) for Android-specific details.
 ```
 OpenFlux-Android/
   core/                            # Upstream OpenFlux (submodule): CLI, transports, tunnel, mobile/ bridge
-  android/                         # Android tunnel client (this fork's addition)
+  android/                         # The Android app
   build_android_app.sh             # Build the Android APKs against core/mobile
   deploy/openflux.service          # Sample systemd unit for the exit node
-  docs/                            # Fork documentation
+  docs/                            # Guides and project documentation
 ```
-
-The fork's own core, as it was before switching to the upstream submodule,
-is kept on the [`fork-core`](https://github.com/damnurmum/OpenFlux-Android/tree/fork-core) branch.
 
 ## Development and security
 
@@ -327,10 +321,11 @@ git add core && git commit -m "core: update to upstream <commit>"
 
 Contributions are described in [docs/en/CONTRIBUTING.md](docs/en/CONTRIBUTING.md).
 Please read [docs/en/SECURITY.md](docs/en/SECURITY.md) before reporting a
-vulnerability. Changes are listed in [docs/en/CHANGELOG.md](docs/en/CHANGELOG.md).
+vulnerability. Changes are listed in the
+[release notes](https://github.com/damnurmum/OpenFlux-Android/releases).
 
 ## License
 
 OpenFlux is licensed under the GNU General Public License v3.0 or later. See
-[LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT) and [NOTICE](NOTICE). This fork is
-not endorsed by or affiliated with Yandex or Mail.ru.
+[LICENSE](LICENSE), [COPYRIGHT](COPYRIGHT) and [NOTICE](NOTICE). The app is not
+endorsed by or affiliated with Yandex or Mail.ru.
