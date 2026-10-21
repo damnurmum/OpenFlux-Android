@@ -645,7 +645,7 @@ final class SettingsPage {
         links.addView(aboutLinkRow(R.drawable.ic_telegram, "Telegram чат",
                 "@openflux_chat", "https://t.me/openflux_chat"), app.matchWrap());
         links.addView(aboutLinkRow(R.drawable.ic_discord, "Discord",
-                "discord.gg/openfluxx", "https://discord.gg/8a4S3QAh62"), app.matchWrap());
+                "discord.gg/8a4S3QAh62", "https://discord.gg/8a4S3QAh62"), app.matchWrap());
         app.groupTiles(links);
         LinearLayout.LayoutParams linksParams = app.matchWrap();
         linksParams.topMargin = app.dp(20);
