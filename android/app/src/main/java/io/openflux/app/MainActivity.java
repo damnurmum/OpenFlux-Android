@@ -222,6 +222,7 @@ public final class MainActivity extends ThemedActivity {
             settingsPage.closeSettingsDetail();
             return;
         }
+        if (currentPage == PAGE_SETTINGS && settingsPage.clearSearch()) return;
         if (currentPage == PAGE_PROFILES && profileEditorOpen) {
             closeProfileEditor();
             return;
@@ -518,7 +519,10 @@ public final class MainActivity extends ThemedActivity {
 
     void showPage(int page) {
         captureSettings();
-        if (page != PAGE_SETTINGS) settingsPage.settingsDetailOpen = false;
+        if (page != PAGE_SETTINGS) {
+            settingsPage.settingsDetailOpen = false;
+            settingsPage.searchQuery = "";
+        }
         if (page != PAGE_PROFILES) profileEditorOpen = false;
         currentPage = page;
         pinnedSave = null;

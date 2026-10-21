@@ -75,8 +75,78 @@ final class SettingsPage {
     private final LinkedHashSet<String> editorEnabledDomainPresets = new LinkedHashSet<>();
     private EditText customDomainsInput;
 
+    // The settings search: the query stays while a found section is open, so
+    // "back" returns to the results; pendingHighlight is the row to light up
+    // once that section is shown.
+    String searchQuery = "";
+    private String pendingHighlight;
+    private LinearLayout settingsList;
+
     SettingsPage(MainActivity app) {
         this.app = app;
+    }
+
+    // A row the search finds: its section, icon and title, the text on the
+    // page to light up (usually the title itself), and other words people
+    // may type for it.
+    private static final class SearchItem {
+        final int tab, icon;
+        final String title, target, words;
+
+        SearchItem(int tab, int icon, String title, String target, String words) {
+            this.tab = tab;
+            this.icon = icon;
+            this.title = title;
+            this.target = target;
+            this.words = words;
+        }
+    }
+
+    // Titles here must match the rows built below, or the highlight finds
+    // nothing (the section still opens).
+    private static java.util.List<SearchItem> searchItems() {
+        java.util.List<SearchItem> items = new java.util.ArrayList<>(java.util.Arrays.asList(
+                item(SETTINGS_MODE, R.drawable.ic_lock, "Туннель", "vpn весь трафик режим"),
+                item(SETTINGS_MODE, R.drawable.ic_swap, "Прокси (SOCKS5)", "socks proxy режим"),
+                item(SETTINGS_MODE, R.drawable.ic_power, "Выходная нода (L4)", "exit нода раздать интернет режим"),
+                item(SETTINGS_MODE, R.drawable.ic_swap, "Локальный порт SOCKS5", "порт прокси 1080"),
+                item(SETTINGS_MODE, R.drawable.ic_public, "Доступ из локальной сети", "lan wi-fi wifi прокси"),
+                item(SETTINGS_MODE, R.drawable.ic_lock, "Логин и пароль", "авторизация прокси пароль"),
+                item(SETTINGS_MODE, R.drawable.ic_power, "Отключить оптимизацию батареи", "батарея фон энергосбережение"),
+                item(SETTINGS_MODE, R.drawable.ic_lock, "Настройки Always-on Tunnel", "постоянный vpn утечки always on"),
+                item(SETTINGS_NETWORK, R.drawable.ic_public, "DNS-сервер: по умолчанию", "dns 1.1.1.1"),
+                item(SETTINGS_NETWORK, R.drawable.ic_public, "Свой DNS", "dns сервер адрес"),
+                item(SETTINGS_NETWORK, R.drawable.ic_settings, "MTU пакета", "mtu размер пакета"),
+                item(SETTINGS_NETWORK, R.drawable.ic_lock, "Kill Switch", "килл свитч блокировка обрыв утечки"),
+                item(SETTINGS_APPS, R.drawable.ic_apps, "Все приложения", "фильтр приложений"),
+                item(SETTINGS_APPS, R.drawable.ic_apps, "Только выбранные", "белый список whitelist"),
+                item(SETTINGS_APPS, R.drawable.ic_apps, "Все, кроме выбранных", "черный список blacklist исключения"),
+                item(SETTINGS_APPS, R.drawable.ic_apps, "Показать системные приложения", "системные")));
+        for (DomainFilter.Preset preset : DomainFilter.PRESETS) {
+            items.add(item(SETTINGS_ROUTING, presetIcon(preset.id), preset.title, "обход " + preset.description));
+        }
+        items.addAll(java.util.Arrays.asList(
+                item(SETTINGS_ROUTING, R.drawable.ic_routing, "Свои домены", "домены сайты обход"),
+                item(SETTINGS_INTERFACE, R.drawable.ic_dark_mode, "Тёмная тема", "тема светлая ночная оформление"),
+                item(SETTINGS_INTERFACE, R.drawable.ic_terminal, "Автопрокрутка логов", "журнал логи прокрутка"),
+                item(SETTINGS_SCRIPTS, R.drawable.ic_code, "Экспериментальные функции", "js javascript скрипты включить"),
+                new SearchItem(SETTINGS_SCRIPTS, R.drawable.ic_code, "Импорт JS-транспорта", "Импортировать",
+                        "js javascript скрипт flux файл ссылка"),
+                new SearchItem(SETTINGS_SCRIPTS, R.drawable.ic_code, "Обновления JS-транспортов", "Проверить обновления",
+                        "js javascript скрипты"),
+                item(SETTINGS_ABOUT, R.drawable.ic_github, "Основной репозиторий", "github апстрим исходники"),
+                item(SETTINGS_ABOUT, R.drawable.ic_github, "Наш форк", "github исходники"),
+                item(SETTINGS_ABOUT, R.drawable.ic_telegram, "Telegram чат", "телеграм чат сообщество поддержка"),
+                item(SETTINGS_ABOUT, R.drawable.ic_discord, "Discord", "дискорд сервер сообщество поддержка")));
+        return items;
+    }
+
+    private static SearchItem item(int tab, int icon, String title, String words) {
+        return new SearchItem(tab, icon, title, title, words);
+    }
+
+    private static String normalize(String value) {
+        return value.toLowerCase(java.util.Locale.ROOT).replace('ё', 'е').trim();
     }
 
     void openSettingsDetail(int tab) {
@@ -115,11 +185,18 @@ final class SettingsPage {
 
     View buildSettingsPage() {
         LinearLayout page = app.page();
+        // When the focused search field goes with the old page, focus lands
+        // on the page itself rather than the first field on the new one.
+        page.setFocusableInTouchMode(true);
+        page.setDescendantFocusability(android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS);
         page.addView(buildSettingsHeader());
 
         if (!settingsDetailOpen) {
+            LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, app.dp(48));
+            searchParams.topMargin = app.dp(16);
+            page.addView(buildSearchField(), searchParams);
             LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(-1, 0, 1f);
-            listParams.topMargin = app.dp(16);
+            listParams.topMargin = app.dp(12);
             listParams.bottomMargin = app.dp(10);
             page.addView(buildSettingsList(), listParams);
             return page;
@@ -135,6 +212,12 @@ final class SettingsPage {
         // needs no room of its own for it.
         if (showSave && subTab instanceof ScrollView) ThemedActivity.scrollBottom(subTab, app.dp(8));
         page.addView(subTab, contentParams);
+        if (pendingHighlight != null) {
+            String target = pendingHighlight;
+            pendingHighlight = null;
+            // After the page has laid out and started fading in.
+            subTab.postDelayed(() -> highlight(subTab, target), 120);
+        }
 
         if (showSave) {
             Button save = app.primaryButton("Сохранить настройки", () -> {
@@ -214,6 +297,39 @@ final class SettingsPage {
         list.setOrientation(LinearLayout.VERTICAL);
         // Inside the list, not on the scroll: see scrollBottom.
         list.setPadding(0, 0, 0, app.navClearance());
+        settingsList = list;
+        fillSettingsList();
+        scroll.addView(list, new ScrollView.LayoutParams(-1, -2));
+        return scroll;
+    }
+
+    // The sections, or while there is a query the rows that match it.
+    private void fillSettingsList() {
+        LinearLayout list = settingsList;
+        list.removeAllViews();
+        String[] words = normalize(searchQuery).split("\\s+");
+        if (!words[0].isEmpty()) {
+            for (SearchItem item : searchItems()) {
+                String haystack = normalize(item.title + " " + item.words + " " + settingsSectionTitle(item.tab));
+                boolean match = true;
+                for (String word : words) match &= haystack.contains(word);
+                if (!match) continue;
+                list.addView(settingsListRow(item.icon, item.title, settingsSectionTitle(item.tab), () -> {
+                    hideKeyboard(list);
+                    pendingHighlight = item.target;
+                    openSettingsDetail(item.tab);
+                }));
+            }
+            if (list.getChildCount() == 0) {
+                TextView empty = app.text("Ничего не найдено", 13, app.secondary, false);
+                empty.setGravity(Gravity.CENTER);
+                empty.setPadding(0, app.dp(24), 0, 0);
+                list.addView(empty, app.matchWrap());
+                return;
+            }
+            app.groupTiles(list);
+            return;
+        }
         list.addView(settingsListRow(R.drawable.ic_swap, "Режим работы",
                 MainActivity.modeLabel(app.connectionMode), SETTINGS_MODE));
         list.addView(settingsListRow(R.drawable.ic_public, "Сеть",
@@ -230,11 +346,138 @@ final class SettingsPage {
         list.addView(settingsListRow(R.drawable.ic_info, "О проекте",
                 "Репозитории проекта", SETTINGS_ABOUT));
         app.groupTiles(list);
-        scroll.addView(list, new ScrollView.LayoutParams(-1, -2));
-        return scroll;
+    }
+
+    private View buildSearchField() {
+        LinearLayout row = new LinearLayout(app);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackground(app.rounded(app.surface, app.border, 1, 24));
+        EditText input = app.settingInput("Поиск настроек", searchQuery,
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        input.setContentDescription("Поиск настроек");
+        input.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        input.setPadding(app.dp(10), 0, 0, 0);
+        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(app.dp(20), app.dp(20));
+        iconParams.leftMargin = app.dp(16);
+        row.addView(app.icon(R.drawable.ic_search, app.hint), iconParams);
+        row.addView(input, new LinearLayout.LayoutParams(0, -1, 1f));
+        ImageButton clear = app.iconButton(R.drawable.ic_close, "Очистить поиск");
+        clear.setVisibility(searchQuery.isEmpty() ? View.INVISIBLE : View.VISIBLE);
+        clear.setOnClickListener(v -> {
+            app.tap(v);
+            input.setText("");
+        });
+        row.addView(clear, new LinearLayout.LayoutParams(app.dp(48), -1));
+        input.setOnEditorActionListener((v, actionId, event) -> {
+            hideKeyboard(v);
+            return true;
+        });
+        input.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
+            @Override public void afterTextChanged(android.text.Editable s) {
+                boolean wasSearching = !searchQuery.trim().isEmpty();
+                searchQuery = s.toString();
+                boolean searching = !searchQuery.trim().isEmpty();
+                clear.setVisibility(searchQuery.isEmpty() ? View.INVISIBLE : View.VISIBLE);
+                fillSettingsList();
+                // Sections and results swap with a short fade; typing within
+                // the results just refreshes them.
+                if (wasSearching != searching) {
+                    settingsList.setAlpha(0f);
+                    settingsList.animate().alpha(1f).setDuration(180)
+                            .setInterpolator(ThemedActivity.EMPHASIZED).start();
+                }
+            }
+        });
+        return row;
+    }
+
+    // "Back" on the results clears the query before it leaves Settings.
+    boolean clearSearch() {
+        if (searchQuery.isEmpty()) return false;
+        searchQuery = "";
+        app.showPage(MainActivity.PAGE_SETTINGS);
+        return true;
+    }
+
+    private void hideKeyboard(View view) {
+        android.view.inputmethod.InputMethodManager keyboard =
+                app.getSystemService(android.view.inputmethod.InputMethodManager.class);
+        if (keyboard != null) keyboard.hideSoftInputFromWindow(view.getWindowToken(), 0);
+    }
+
+    // Lights up the row a search result named, as Android's settings do: the
+    // page scrolls it to the middle and an accent wash pulses over it twice.
+    private void highlight(View page, String target) {
+        View found = findText(page, target);
+        if (found == null || !found.isShown()) return;
+        // The text sits in its row's copy column; the row is the first
+        // ancestor with a tile, short of the page itself.
+        View row = found;
+        while (row.getBackground() == null && row.getParent() instanceof View) {
+            View parent = (View) row.getParent();
+            if (parent == page || parent instanceof ScrollView || parent.getParent() instanceof ScrollView
+                    || parent instanceof androidx.recyclerview.widget.RecyclerView) break;
+            row = parent;
+        }
+        for (View v = row; v.getParent() instanceof View; v = (View) v.getParent()) {
+            if (!(v.getParent() instanceof ScrollView)) continue;
+            ScrollView scroll = (ScrollView) v.getParent();
+            int y = 0;
+            for (View step = row; step != scroll; step = (View) step.getParent()) y += step.getTop();
+            scroll.smoothScrollTo(0, Math.max(0, y - (scroll.getHeight() - row.getHeight()) / 2));
+            break;
+        }
+        android.graphics.drawable.GradientDrawable wash = new android.graphics.drawable.GradientDrawable();
+        wash.setColor(app.accent);
+        wash.setCornerRadii(cornerRadii(row.getBackground()));
+        wash.setAlpha(0);
+        View lit = row;
+        lit.setForeground(wash);
+        android.animation.ValueAnimator pulse = android.animation.ValueAnimator.ofInt(0, 70, 0, 70, 0);
+        pulse.setDuration(1600);
+        pulse.setStartDelay(250);
+        pulse.addUpdateListener(a -> wash.setAlpha((int) a.getAnimatedValue()));
+        pulse.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator animation) {
+                lit.setForeground(null);
+            }
+        });
+        pulse.start();
+    }
+
+    private static View findText(View view, String target) {
+        if (view instanceof TextView && target.contentEquals(((TextView) view).getText())) return view;
+        if (!(view instanceof android.view.ViewGroup)) return null;
+        android.view.ViewGroup group = (android.view.ViewGroup) view;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View found = findText(group.getChildAt(i), target);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    // The tile's own corners, so the wash covers it exactly.
+    private float[] cornerRadii(android.graphics.drawable.Drawable background) {
+        if (background instanceof android.graphics.drawable.LayerDrawable
+                && ((android.graphics.drawable.LayerDrawable) background).getNumberOfLayers() > 0) {
+            background = ((android.graphics.drawable.LayerDrawable) background).getDrawable(0);
+        }
+        if (background instanceof android.graphics.drawable.GradientDrawable) {
+            android.graphics.drawable.GradientDrawable shape = (android.graphics.drawable.GradientDrawable) background;
+            if (shape.getCornerRadii() != null) return shape.getCornerRadii();
+            float r = shape.getCornerRadius();
+            return new float[]{r, r, r, r, r, r, r, r};
+        }
+        return app.radii(10);
     }
 
     private View settingsListRow(int iconRes, String titleValue, String detailValue, int tab) {
+        return settingsListRow(iconRes, titleValue, detailValue, () -> openSettingsDetail(tab));
+    }
+
+    private View settingsListRow(int iconRes, String titleValue, String detailValue, Runnable open) {
         LinearLayout row = new LinearLayout(app);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(app.dp(14), app.dp(14), app.dp(14), app.dp(14));
@@ -251,7 +494,7 @@ final class SettingsPage {
         row.addView(app.icon(R.drawable.ic_chevron_right, app.hint), new LinearLayout.LayoutParams(app.dp(20), app.dp(20)));
         row.setOnClickListener(v -> {
             app.bounce(v);
-            openSettingsDetail(tab);
+            open.run();
         });
         return row;
     }
