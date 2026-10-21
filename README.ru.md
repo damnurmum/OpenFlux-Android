@@ -8,6 +8,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/github/license/damnurmum/OpenFlux-Android?style=flat-square" alt="Лицензия GPL-3.0"></a>
     <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android 8 и новее">
     <a href="https://discord.gg/8a4S3QAh62"><img src="https://img.shields.io/discord/1550202172304785479?style=flat-square&amp;logo=discord&amp;logoColor=white&amp;label=Discord&amp;color=5865F2" alt="Присоединиться к нашему Discord"></a>
+    <a href="https://t.me/openflux_chat"><img src="https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Ft.me%2Fopenflux_chat&amp;query=%2F%2Fdiv%5B%40class%3D%27tgme_page_extra%27%5D&amp;label=Telegram&amp;logo=telegram&amp;logoColor=white&amp;color=26A5E4&amp;style=flat-square" alt="Присоединиться к нашему Telegram-чату"></a>
   </p>
   <p>
     <img src="https://img.shields.io/badge/Go-1.26.4%2B-00ADD8?style=flat-square&amp;logo=go&amp;logoColor=white" alt="Go 1.26.4 и новее">
