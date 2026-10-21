@@ -3,18 +3,18 @@
   <h1>OpenFlux Android</h1>
   <p>Зашифрованный туннель через документ-транспорт - для Android, десктопных клиентов и Linux-выходных нод.</p>
   <p>
-    <a href="https://github.com/damnurmum/OpenFlux-Android/releases/latest"><img src="https://img.shields.io/github/v/release/damnurmum/OpenFlux-Android?display_name=tag&amp;sort=semver&amp;style=flat-square&amp;color=EA1A1A" alt="Последний релиз"></a>
-    <a href="https://github.com/damnurmum/OpenFlux-Android/actions/workflows/ci.yml"><img src="https://github.com/damnurmum/OpenFlux-Android/actions/workflows/ci.yml/badge.svg" alt="Статус CI"></a>
-    <a href="LICENSE"><img src="https://img.shields.io/github/license/damnurmum/OpenFlux-Android?style=flat-square" alt="Лицензия GPL-3.0"></a>
-    <img src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=flat-square&amp;logo=android&amp;logoColor=white" alt="Android 8 и новее">
-    <a href="https://discord.gg/8a4S3QAh62"><img src="https://img.shields.io/discord/1550202172304785479?style=flat-square&amp;logo=discord&amp;logoColor=white&amp;label=Discord&amp;color=5865F2" alt="Присоединиться к нашему Discord"></a>
-    <a href="https://t.me/openflux_chat"><img src="https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Ft.me%2Fopenflux_chat&amp;query=%2F%2Fdiv%5B%40class%3D%27tgme_page_extra%27%5D&amp;label=Telegram&amp;logo=telegram&amp;logoColor=white&amp;color=26A5E4&amp;style=flat-square" alt="Присоединиться к нашему Telegram-чату"></a>
+    <a href="https://github.com/damnurmum/OpenFlux-Android/releases/latest"><img src="https://img.shields.io/github/v/release/damnurmum/OpenFlux-Android?display_name=tag&amp;sort=semver&amp;style=flat-square&amp;color=4F7CFF&amp;labelColor=314D9E" alt="Последний релиз"></a>
+    <a href="https://github.com/damnurmum/OpenFlux-Android/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/damnurmum/OpenFlux-Android/ci.yml?branch=main&amp;style=flat-square&amp;label=CI&amp;logo=githubactions&amp;logoColor=white&amp;color=4F7CFF&amp;labelColor=314D9E" alt="Статус CI"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/damnurmum/OpenFlux-Android?style=flat-square&amp;color=4F7CFF&amp;labelColor=314D9E" alt="Лицензия GPL-3.0"></a>
+    <img src="https://img.shields.io/badge/Android-8.0%2B-4F7CFF?style=flat-square&amp;logo=android&amp;logoColor=white&amp;color=4F7CFF&amp;labelColor=314D9E" alt="Android 8 и новее">
+    <a href="https://discord.gg/8a4S3QAh62"><img src="https://img.shields.io/discord/1550202172304785479?style=flat-square&amp;logo=discord&amp;logoColor=white&amp;label=Discord&amp;color=4F7CFF&amp;labelColor=314D9E" alt="Присоединиться к нашему Discord"></a>
+    <a href="https://t.me/openflux_chat"><img src="https://img.shields.io/badge/dynamic/xml?url=https%3A%2F%2Ft.me%2Fopenflux_chat&amp;query=%2F%2Fdiv%5B%40class%3D%27tgme_page_extra%27%5D&amp;label=Telegram&amp;logo=telegram&amp;logoColor=white&amp;style=flat-square&amp;color=4F7CFF&amp;labelColor=314D9E" alt="Присоединиться к нашему Telegram-чату"></a>
   </p>
   <p>
-    <img src="https://img.shields.io/badge/Go-1.26.4%2B-00ADD8?style=flat-square&amp;logo=go&amp;logoColor=white" alt="Go 1.26.4 и новее">
-    <img src="https://img.shields.io/badge/Java-17-ED8B00?style=flat-square&amp;logo=openjdk&amp;logoColor=white" alt="Java 17">
-    <img src="https://img.shields.io/badge/ABI-ARM64%20%7C%20ARMv7%20%7C%20x86__64%20%7C%20x86-455a64?style=flat-square" alt="Поддерживаемые архитектуры Android">
-    <img src="https://img.shields.io/badge/IPv4%20%2F%20TCP-experimental-f59e0b?style=flat-square" alt="Экспериментальная поддержка IPv4 и TCP">
+    <img src="https://img.shields.io/badge/Go-1.26.4%2B-4F7CFF?style=flat-square&amp;logo=go&amp;logoColor=white&amp;color=4F7CFF&amp;labelColor=314D9E" alt="Go 1.26.4 и новее">
+    <img src="https://img.shields.io/badge/Java-17-4F7CFF?style=flat-square&amp;logo=openjdk&amp;logoColor=white&amp;color=4F7CFF&amp;labelColor=314D9E" alt="Java 17">
+    <img src="https://img.shields.io/badge/ABI-ARM64%20%7C%20ARMv7%20%7C%20x86__64%20%7C%20x86-4F7CFF?style=flat-square&amp;color=4F7CFF&amp;labelColor=314D9E" alt="Поддерживаемые архитектуры Android">
+    <img src="https://img.shields.io/badge/IPv4%20%2F%20TCP-experimental-4F7CFF?style=flat-square&amp;color=4F7CFF&amp;labelColor=314D9E" alt="Экспериментальная поддержка IPv4 и TCP">
   </p>
   <p><a href="README.md">English</a> · <strong>Русский</strong></p>
 </div>
