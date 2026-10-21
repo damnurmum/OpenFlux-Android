@@ -19,6 +19,10 @@
   <p><a href="README.md">English</a> · <strong>Русский</strong></p>
 </div>
 
+<p align="center">
+  <img src="design/screenshots/app.png" alt="OpenFlux Android: главная, профили, настройки и «О проекте»">
+</p>
+
 OpenFlux - исследовательский TCP-туннель, маскирующий трафик под сессию
 совместного редактирования документа (Yandex Docs, Mail.ru Docs, Cups.online,
 MAX) вместо обычного VPN-протокола. OpenFlux Android - приложение для него:

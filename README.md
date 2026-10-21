@@ -19,6 +19,10 @@
   <p><strong>English</strong> · <a href="README.ru.md">Русский</a></p>
 </div>
 
+<p align="center">
+  <img src="design/screenshots/app.png" alt="OpenFlux Android: Home, Profiles, Settings and About screens">
+</p>
+
 OpenFlux is a research TCP tunnel that disguises traffic as a collaborative
 document-editing session (Yandex Docs, Mail.ru Docs, Cups.online, MAX) instead
 of a conventional VPN protocol. OpenFlux Android is the app for it: a tunnel or
