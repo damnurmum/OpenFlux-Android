@@ -80,7 +80,7 @@ public final class MainActivity extends ThemedActivity {
 
     static final int DEFAULT_PROXY_PORT = 1080;
     static final String MAIN_REPO_URL = "https://github.com/p1neappleXpress/OpenFlux";
-    static final String FORK_REPO_URL = "https://github.com/damnurmum/OpenFlux-Android";
+    static final String APP_REPO_URL = "https://github.com/damnurmum/OpenFlux-Android";
 
     // ---- State ----
 

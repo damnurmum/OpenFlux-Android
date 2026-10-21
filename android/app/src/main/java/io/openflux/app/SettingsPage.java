@@ -134,10 +134,12 @@ final class SettingsPage {
                         "js javascript скрипт flux файл ссылка"),
                 new SearchItem(SETTINGS_SCRIPTS, R.drawable.ic_code, "Обновления JS-транспортов", "Проверить обновления",
                         "js javascript скрипты"),
-                item(SETTINGS_ABOUT, R.drawable.ic_github, "Основной репозиторий", "github апстрим исходники"),
-                item(SETTINGS_ABOUT, R.drawable.ic_github, "Наш форк", "github исходники"),
-                item(SETTINGS_ABOUT, R.drawable.ic_telegram, "Telegram чат", "телеграм чат сообщество поддержка"),
-                item(SETTINGS_ABOUT, R.drawable.ic_discord, "Discord", "дискорд сервер сообщество поддержка")));
+                item(SETTINGS_ABOUT, R.drawable.ic_github, "Ядро проекта", "github апстрим исходный код core"),
+                item(SETTINGS_ABOUT, R.drawable.ic_github, "Приложение", "github исходный код android"),
+                new SearchItem(SETTINGS_ABOUT, R.drawable.ic_telegram, "Telegram-чат", "Telegram",
+                        "телеграм чат сообщество помощь поддержка"),
+                new SearchItem(SETTINGS_ABOUT, R.drawable.ic_discord, "Discord-сервер", "Discord",
+                        "дискорд сервер сообщество помощь поддержка")));
         return items;
     }
 
@@ -344,7 +346,7 @@ final class SettingsPage {
                 ScriptStore.experimental(app) ? "Экспериментально: включены" : "Экспериментально: выключены",
                 SETTINGS_SCRIPTS));
         list.addView(settingsListRow(R.drawable.ic_info, "О проекте",
-                "Репозитории проекта", SETTINGS_ABOUT));
+                "Помощь, сообщество и исходный код", SETTINGS_ABOUT));
         app.groupTiles(list);
     }
 
@@ -874,26 +876,84 @@ final class SettingsPage {
     private View buildAboutSettings() {
         LinearLayout section = app.page();
         TextView intro = app.text(
-                "OpenFlux - экспериментальный туннель-клиент поверх документ-транспорта. "
-                        + "Это доработанный форк общедоступного проекта под Android.",
+                "OpenFlux - зашифрованный туннель, который маскирует трафик под совместное "
+                        + "редактирование документов. Приложение работает на открытом ядре OpenFlux.",
                 13, app.secondary, false);
         section.addView(intro, app.matchWrap());
 
+        LinearLayout.LayoutParams helpParams = app.matchWrap();
+        helpParams.topMargin = app.dp(20);
+        section.addView(buildHelpCard(), helpParams);
+
+        TextView codeTitle = app.label("ИСХОДНЫЙ КОД");
+        LinearLayout.LayoutParams codeTitleParams = app.matchWrap();
+        codeTitleParams.topMargin = app.dp(26);
+        codeTitleParams.bottomMargin = app.dp(8);
+        section.addView(codeTitle, codeTitleParams);
         LinearLayout links = new LinearLayout(app);
         links.setOrientation(LinearLayout.VERTICAL);
-        links.addView(aboutLinkRow(R.drawable.ic_github, "Основной репозиторий",
+        links.addView(aboutLinkRow(R.drawable.ic_github, "Ядро проекта",
                 "p1neappleXpress/OpenFlux", MainActivity.MAIN_REPO_URL), app.matchWrap());
-        links.addView(aboutLinkRow(R.drawable.ic_github, "Наш форк",
-                "damnurmum/OpenFlux-Android", MainActivity.FORK_REPO_URL), app.matchWrap());
-        links.addView(aboutLinkRow(R.drawable.ic_telegram, "Telegram чат",
-                "@openflux_chat", "https://t.me/openflux_chat"), app.matchWrap());
-        links.addView(aboutLinkRow(R.drawable.ic_discord, "Discord",
-                "discord.gg/8a4S3QAh62", "https://discord.gg/8a4S3QAh62"), app.matchWrap());
+        links.addView(aboutLinkRow(R.drawable.ic_github, "Приложение",
+                "damnurmum/OpenFlux-Android", MainActivity.APP_REPO_URL), app.matchWrap());
         app.groupTiles(links);
-        LinearLayout.LayoutParams linksParams = app.matchWrap();
-        linksParams.topMargin = app.dp(20);
-        section.addView(links, linksParams);
+        section.addView(links, app.matchWrap());
         return section;
+    }
+
+    // "Нужна помощь?": where to ask, with the community chats as two buttons.
+    private View buildHelpCard() {
+        LinearLayout card = new LinearLayout(app);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(app.dp(18), app.dp(18), app.dp(18), app.dp(18));
+        card.setBackground(app.rounded(app.surface, app.border, 1, 24));
+
+        LinearLayout heading = new LinearLayout(app);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        heading.addView(app.iconBubble(R.drawable.ic_help), new LinearLayout.LayoutParams(app.dp(40), app.dp(40)));
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -2, 1f);
+        titleParams.leftMargin = app.dp(14);
+        heading.addView(app.text("Нужна помощь?", 17, app.text, true), titleParams);
+        card.addView(heading, app.matchWrap());
+
+        TextView body = app.text("Не подключается, транспорт не работает или непонятно, как что-то настроить? "
+                + "Спросите в нашем сообществе: там помогают разработчики и другие пользователи. "
+                + "Чтобы разобраться быстрее, опишите, что делали, и приложите журнал со вкладки «Журнал».",
+                13, app.secondary, false);
+        body.setLineSpacing(app.dp(2), 1f);
+        LinearLayout.LayoutParams bodyParams = app.matchWrap();
+        bodyParams.topMargin = app.dp(12);
+        card.addView(body, bodyParams);
+
+        LinearLayout buttons = new LinearLayout(app);
+        buttons.addView(helpButton(R.drawable.ic_telegram, "Telegram", "https://t.me/openflux_chat"),
+                new LinearLayout.LayoutParams(0, app.dp(48), 1f));
+        LinearLayout.LayoutParams discordParams = new LinearLayout.LayoutParams(0, app.dp(48), 1f);
+        discordParams.leftMargin = app.dp(10);
+        buttons.addView(helpButton(R.drawable.ic_discord, "Discord", "https://discord.gg/8a4S3QAh62"), discordParams);
+        LinearLayout.LayoutParams buttonsParams = app.matchWrap();
+        buttonsParams.topMargin = app.dp(16);
+        card.addView(buttons, buttonsParams);
+        return card;
+    }
+
+    private View helpButton(int iconRes, String label, String url) {
+        LinearLayout button = new LinearLayout(app);
+        button.setGravity(Gravity.CENTER);
+        button.setBackground(app.tile(app.tonal(0.2f), Color.TRANSPARENT, app.radii(16)));
+        button.setClickable(true);
+        button.setFocusable(true);
+        button.setContentDescription(label);
+        button.addView(app.icon(iconRes, app.accent), new LinearLayout.LayoutParams(app.dp(20), app.dp(20)));
+        TextView text = app.text(label, 14, app.accent, true);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
+        textParams.leftMargin = app.dp(8);
+        button.addView(text, textParams);
+        button.setOnClickListener(v -> {
+            app.bounce(v);
+            app.openUrl(url);
+        });
+        return button;
     }
 
     private View aboutLinkRow(int iconRes, String titleValue, String detailValue, String url) {

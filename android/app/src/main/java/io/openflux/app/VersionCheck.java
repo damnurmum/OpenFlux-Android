@@ -12,10 +12,10 @@ import java.nio.charset.StandardCharsets;
 import org.json.JSONObject;
 
 // The version badge in the header: this build's version, and whether the
-// fork's latest GitHub release is newer (checked once per launch).
+// app's latest GitHub release is newer (checked once per launch).
 final class VersionCheck {
     private final MainActivity app;
-    private static final String FORK_REPO_SLUG = "damnurmum/OpenFlux-Android";
+    private static final String APP_REPO_SLUG = "damnurmum/OpenFlux-Android";
     private static final int VERSION_CHECK_PENDING = 0;
     private static final int VERSION_CHECK_LATEST = 1;
     private static final int VERSION_CHECK_OUTDATED = 2;
@@ -81,7 +81,7 @@ final class VersionCheck {
     private String fetchLatestGithubVersion() {
         HttpURLConnection connection = null;
         try {
-            URL url = new URL("https://api.github.com/repos/" + FORK_REPO_SLUG + "/releases/latest");
+            URL url = new URL("https://api.github.com/repos/" + APP_REPO_SLUG + "/releases/latest");
             connection = (HttpURLConnection) url.openConnection();
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(5000);
