@@ -227,8 +227,23 @@ public final class MainActivity extends ThemedActivity {
             closeProfileEditor();
             return;
         }
+        // Another tab steps back to Home, as bottom-nav apps do; Home asks for
+        // a second press so one stray swipe does not leave the app.
+        if (currentPage != PAGE_HOME) {
+            showPage(PAGE_HOME);
+            return;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastBackPress > 2000) {
+            lastBackPress = now;
+            tap(root);
+            Toast.makeText(this, "Нажмите «Назад» ещё раз, чтобы выйти", Toast.LENGTH_SHORT).show();
+            return;
+        }
         super.onBackPressed();
     }
+
+    private long lastBackPress;
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
