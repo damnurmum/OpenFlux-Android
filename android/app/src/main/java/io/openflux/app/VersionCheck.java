@@ -11,14 +11,16 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import org.json.JSONObject;
 
-// The version badge in the header: this build's version, and whether the
-// app's latest GitHub release is newer (checked once per launch).
+// The version badge in the header and the app line on «О проекте»: this
+// build's version, and whether the app's latest GitHub release is newer
+// (checked once per launch).
 final class VersionCheck {
     private final MainActivity app;
     private static final String APP_REPO_SLUG = "damnurmum/OpenFlux-Android";
     private static final int VERSION_CHECK_PENDING = 0;
     private static final int VERSION_CHECK_LATEST = 1;
     private static final int VERSION_CHECK_OUTDATED = 2;
+    private static final int VERSION_CHECK_FAILED = 3;
     TextView versionBadge;
     String appVersion = "";
     private String latestVersion;
@@ -28,32 +30,43 @@ final class VersionCheck {
         this.app = app;
     }
 
+    // The status line on «О проекте», kept in step with the badge.
+    TextView appStatus;
+
     void updateVersionBadge() {
-        if (versionBadge == null) return;
-        String base = appVersion.isEmpty() ? "-" : appVersion;
         int fg;
         int bg;
-        String label;
+        String status;
         switch (versionCheckState) {
             case VERSION_CHECK_LATEST:
                 fg = app.darkMode ? Color.rgb(129, 201, 149) : Color.rgb(24, 128, 56);
                 bg = app.darkMode ? Color.rgb(30, 46, 36) : Color.rgb(230, 245, 234);
-                label = base + " | Последняя версия";
+                status = "Последняя версия, обновлять не нужно";
                 break;
             case VERSION_CHECK_OUTDATED:
                 fg = app.darkMode ? Color.rgb(253, 214, 99) : Color.rgb(249, 171, 0);
                 bg = app.darkMode ? Color.rgb(56, 46, 20) : Color.rgb(255, 243, 224);
-                label = base + " | Доступно обновление";
+                status = "Вышла " + latestVersion + " - обновите приложение";
                 break;
             case VERSION_CHECK_PENDING:
+            case VERSION_CHECK_FAILED:
             default:
                 fg = app.accent;
                 bg = app.darkMode ? Color.rgb(38, 50, 68) : Color.rgb(232, 240, 254);
-                label = base;
+                status = versionCheckState == VERSION_CHECK_FAILED
+                        ? "Не удалось проверить обновления" : "Проверяю обновления…";
         }
-        versionBadge.setText(label);
-        versionBadge.setTextColor(fg);
-        versionBadge.setBackground(app.rounded(bg, Color.TRANSPARENT, 0, 12));
+        if (versionBadge != null) {
+            // Just the number: the color tells whether it is the latest.
+            versionBadge.setText(appVersion.isEmpty() ? "-" : appVersion);
+            versionBadge.setTextColor(fg);
+            versionBadge.setBackground(app.rounded(bg, Color.TRANSPARENT, 0, 12));
+        }
+        if (appStatus != null) {
+            appStatus.setText(status);
+            boolean known = versionCheckState == VERSION_CHECK_LATEST || versionCheckState == VERSION_CHECK_OUTDATED;
+            appStatus.setTextColor(known ? fg : app.secondary);
+        }
     }
 
     String readAppVersion() {
@@ -68,7 +81,13 @@ final class VersionCheck {
     void checkForUpdates() {
         new Thread(() -> {
             String latest = fetchLatestGithubVersion();
-            if (latest == null || latest.isEmpty()) return;
+            if (latest == null || latest.isEmpty()) {
+                app.handler.post(() -> {
+                    versionCheckState = VERSION_CHECK_FAILED;
+                    updateVersionBadge();
+                });
+                return;
+            }
             app.handler.post(() -> {
                 latestVersion = latest;
                 versionCheckState = compareVersions(appVersion, latest) >= 0

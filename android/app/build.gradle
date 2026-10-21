@@ -2,6 +2,12 @@ plugins {
     id "com.android.application"
 }
 
+// The core this build ships and the exit node it is tested with, read from
+// the core submodule so «О проекте» follows every core update by itself.
+def coreDir = new File(rootDir, "../core")
+def coreVersion = (new File(coreDir, "CHANGELOG.md").text =~ /(?m)^## \[(\d+\.\d+\.\d+)\]/)[0][1]
+def nodeVersion = (new File(coreDir, "deploy/node-install.sh").text =~ /(?m)^CORE_VERSION="([^"]+)"/)[0][1]
+
 android {
     namespace "io.openflux.app"
     compileSdk 35
@@ -13,6 +19,12 @@ android {
         versionCode 17
         versionName "1.1.6"
 
+        buildConfigField "String", "CORE_VERSION", "\"${coreVersion}\""
+        buildConfigField "String", "NODE_VERSION", "\"${nodeVersion}\""
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     splits {

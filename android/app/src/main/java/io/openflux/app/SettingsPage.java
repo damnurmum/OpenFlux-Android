@@ -134,6 +134,12 @@ final class SettingsPage {
                         "js javascript скрипт flux файл ссылка"),
                 new SearchItem(SETTINGS_SCRIPTS, R.drawable.ic_code, "Обновления JS-транспортов", "Проверить обновления",
                         "js javascript скрипты"),
+                new SearchItem(SETTINGS_ABOUT, R.drawable.ic_apps, "Версия приложения", appVersionTitle(),
+                        "обновление версия"),
+                new SearchItem(SETTINGS_ABOUT, R.drawable.ic_code, "Версия ядра", coreVersionTitle(),
+                        "core версия совместимость"),
+                new SearchItem(SETTINGS_ABOUT, R.drawable.ic_power, "Версия выходной ноды", nodeVersionTitle(),
+                        "нода сервер vps совместимость обновление"),
                 item(SETTINGS_ABOUT, R.drawable.ic_github, "Ядро проекта", "github апстрим исходный код core"),
                 item(SETTINGS_ABOUT, R.drawable.ic_github, "Приложение", "github исходный код android"),
                 new SearchItem(SETTINGS_ABOUT, R.drawable.ic_telegram, "Telegram-чат", "Telegram",
@@ -346,7 +352,7 @@ final class SettingsPage {
                 ScriptStore.experimental(app) ? "Экспериментально: включены" : "Экспериментально: выключены",
                 SETTINGS_SCRIPTS));
         list.addView(settingsListRow(R.drawable.ic_info, "О проекте",
-                "Помощь, сообщество и исходный код", SETTINGS_ABOUT));
+                "Версии, исходный код и помощь", SETTINGS_ABOUT));
         app.groupTiles(list);
     }
 
@@ -875,21 +881,38 @@ final class SettingsPage {
 
     private View buildAboutSettings() {
         LinearLayout section = app.page();
-        TextView intro = app.text(
-                "OpenFlux - зашифрованный туннель, который маскирует трафик под совместное "
-                        + "редактирование документов. Приложение работает на открытом ядре OpenFlux.",
-                13, app.secondary, false);
-        section.addView(intro, app.matchWrap());
-
-        LinearLayout.LayoutParams helpParams = app.matchWrap();
-        helpParams.topMargin = app.dp(20);
-        section.addView(buildHelpCard(), helpParams);
+        TextView versionsTitle = app.label("ВЕРСИИ");
+        LinearLayout.LayoutParams versionsTitleParams = app.matchWrap();
+        versionsTitleParams.bottomMargin = app.dp(8);
+        section.addView(versionsTitle, versionsTitleParams);
+        LinearLayout versions = new LinearLayout(app);
+        versions.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout appRow = app.cardRow(R.drawable.ic_apps, appVersionTitle(), "");
+        // The row's detail line shows the update check, which VersionCheck
+        // keeps current (it may still be running).
+        app.versionCheck.appStatus = (TextView) ((LinearLayout) appRow.getChildAt(1)).getChildAt(1);
+        app.versionCheck.updateVersionBadge();
+        versions.addView(appRow, app.matchWrap());
+        versions.addView(app.cardRow(R.drawable.ic_code, coreVersionTitle(),
+                "Встроено в приложение и обновляется вместе с ним"), app.matchWrap());
+        versions.addView(app.cardRow(R.drawable.ic_power, nodeVersionTitle(),
+                "С ней эта версия работает стабильно, её ставит мастер VPS. Ноду старее лучше обновить"),
+                app.matchWrap());
+        app.groupTiles(versions);
+        section.addView(versions, app.matchWrap());
 
         TextView codeTitle = app.label("ИСХОДНЫЙ КОД");
         LinearLayout.LayoutParams codeTitleParams = app.matchWrap();
         codeTitleParams.topMargin = app.dp(26);
         codeTitleParams.bottomMargin = app.dp(8);
         section.addView(codeTitle, codeTitleParams);
+        TextView intro = app.text(
+                "OpenFlux - зашифрованный туннель, который маскирует трафик под совместное "
+                        + "редактирование документов. Приложение работает на открытом ядре OpenFlux.",
+                13, app.secondary, false);
+        LinearLayout.LayoutParams introParams = app.matchWrap();
+        introParams.bottomMargin = app.dp(12);
+        section.addView(intro, introParams);
         LinearLayout links = new LinearLayout(app);
         links.setOrientation(LinearLayout.VERTICAL);
         links.addView(aboutLinkRow(R.drawable.ic_github, "Ядро проекта",
@@ -898,7 +921,24 @@ final class SettingsPage {
                 "damnurmum/OpenFlux-Android", MainActivity.APP_REPO_URL), app.matchWrap());
         app.groupTiles(links);
         section.addView(links, app.matchWrap());
+
+        LinearLayout.LayoutParams helpParams = app.matchWrap();
+        helpParams.topMargin = app.dp(26);
+        section.addView(buildHelpCard(), helpParams);
         return section;
+    }
+
+    // The version rows' titles; the search looks for the same text.
+    private static String appVersionTitle() {
+        return "Приложение " + BuildConfig.VERSION_NAME;
+    }
+
+    private static String coreVersionTitle() {
+        return "Ядро " + BuildConfig.CORE_VERSION;
+    }
+
+    private static String nodeVersionTitle() {
+        return "Выходная нода " + BuildConfig.NODE_VERSION.replaceFirst("^node-v", "");
     }
 
     // "Нужна помощь?": where to ask, with the community chats as two buttons.
