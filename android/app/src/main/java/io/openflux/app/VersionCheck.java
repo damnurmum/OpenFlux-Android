@@ -32,6 +32,7 @@ final class VersionCheck {
 
     // The status line on «О проекте», kept in step with the badge.
     TextView appStatus;
+    android.view.View appStatusDot;
 
     void updateVersionBadge() {
         int fg;
@@ -66,6 +67,12 @@ final class VersionCheck {
             appStatus.setText(status);
             boolean known = versionCheckState == VERSION_CHECK_LATEST || versionCheckState == VERSION_CHECK_OUTDATED;
             appStatus.setTextColor(known ? fg : app.secondary);
+            if (appStatusDot != null) {
+                android.graphics.drawable.GradientDrawable dot = new android.graphics.drawable.GradientDrawable();
+                dot.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+                dot.setColor(known ? fg : app.hint);
+                appStatusDot.setBackground(dot);
+            }
         }
     }
 

@@ -134,14 +134,16 @@ final class SettingsPage {
                         "js javascript скрипт flux файл ссылка"),
                 new SearchItem(SETTINGS_SCRIPTS, R.drawable.ic_code, "Обновления JS-транспортов", "Проверить обновления",
                         "js javascript скрипты"),
-                new SearchItem(SETTINGS_ABOUT, R.drawable.ic_apps, "Версия приложения", appVersionTitle(),
+                new SearchItem(SETTINGS_ABOUT, R.drawable.ic_apps, "Версия приложения", BuildConfig.VERSION_NAME,
                         "обновление версия"),
-                new SearchItem(SETTINGS_ABOUT, R.drawable.ic_code, "Версия ядра", coreVersionTitle(),
+                new SearchItem(SETTINGS_ABOUT, R.drawable.ic_code, "Версия ядра", BuildConfig.CORE_VERSION,
                         "core версия совместимость"),
-                new SearchItem(SETTINGS_ABOUT, R.drawable.ic_power, "Версия выходной ноды", nodeVersionTitle(),
+                new SearchItem(SETTINGS_ABOUT, R.drawable.ic_power, "Версия выходной ноды", nodeVersion(),
                         "нода сервер vps совместимость обновление"),
                 item(SETTINGS_ABOUT, R.drawable.ic_github, "Ядро проекта", "github апстрим исходный код core"),
                 item(SETTINGS_ABOUT, R.drawable.ic_github, "Приложение", "github исходный код android"),
+                item(SETTINGS_ABOUT, R.drawable.ic_donate, "Поблагодарить автора",
+                        "донат поддержать задонатить ton gram usdt кошелек перевод"),
                 new SearchItem(SETTINGS_ABOUT, R.drawable.ic_telegram, "Telegram-чат", "Telegram",
                         "телеграм чат сообщество помощь поддержка"),
                 new SearchItem(SETTINGS_ABOUT, R.drawable.ic_discord, "Discord-сервер", "Discord",
@@ -891,38 +893,38 @@ final class SettingsPage {
 
     private View buildAboutSettings() {
         LinearLayout section = app.page();
-        TextView versionsTitle = app.label("ВЕРСИИ");
-        LinearLayout.LayoutParams versionsTitleParams = app.matchWrap();
-        versionsTitleParams.bottomMargin = app.dp(8);
-        section.addView(versionsTitle, versionsTitleParams);
+        section.addView(app.sectionTitle(section, "ВЕРСИИ"));
+        // Three plain tiles, not buttons: the number big, what it is below.
         LinearLayout versions = new LinearLayout(app);
-        versions.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout appRow = app.cardRow(R.drawable.ic_apps, appVersionTitle(), "");
-        // The row's detail line shows the update check, which VersionCheck
-        // keeps current (it may still be running).
-        app.versionCheck.appStatus = (TextView) ((LinearLayout) appRow.getChildAt(1)).getChildAt(1);
-        app.versionCheck.updateVersionBadge();
-        versions.addView(appRow, app.matchWrap());
-        versions.addView(app.cardRow(R.drawable.ic_code, coreVersionTitle(),
-                "Встроено в приложение и обновляется вместе с ним"), app.matchWrap());
-        versions.addView(app.cardRow(R.drawable.ic_power, nodeVersionTitle(),
-                "С ней эта версия работает стабильно, её ставит мастер VPS. Ноду старее лучше обновить"),
-                app.matchWrap());
-        app.groupTiles(versions);
-        section.addView(versions, app.matchWrap());
+        View dot = new View(app);
+        versions.addView(versionTile(BuildConfig.VERSION_NAME, "Приложение", dot),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        versions.addView(versionTile(BuildConfig.CORE_VERSION, "Ядро", null), spacedTile());
+        versions.addView(versionTile(nodeVersion(), "Нода", null), spacedTile());
+        section.addView(versions, app.tileParams());
 
-        TextView codeTitle = app.label("ИСХОДНЫЙ КОД");
-        LinearLayout.LayoutParams codeTitleParams = app.matchWrap();
-        codeTitleParams.topMargin = app.dp(26);
-        codeTitleParams.bottomMargin = app.dp(8);
-        section.addView(codeTitle, codeTitleParams);
-        TextView intro = app.text(
+        // The update check may still be running; VersionCheck keeps the dot
+        // and this line current.
+        TextView status = app.text("", 13, app.secondary, true);
+        // Lined up with the hint under it.
+        LinearLayout.LayoutParams statusParams = app.tileParams();
+        statusParams.leftMargin = app.dp(4);
+        statusParams.rightMargin = app.dp(4);
+        section.addView(status, statusParams);
+        app.versionCheck.appStatus = status;
+        app.versionCheck.appStatusDot = dot;
+        app.versionCheck.updateVersionBadge();
+        section.addView(app.fieldHint("Ядро встроено в приложение и обновляется вместе с ним. Эта версия "
+                + "стабильно работает с выходной нодой " + nodeVersion() + ", её ставит мастер VPS. "
+                + "Ноду старее лучше обновить."));
+
+        section.addView(app.sectionTitle(section, "ИСХОДНЫЙ КОД"));
+        // The section's own short intro, between its title and its links.
+        TextView intro = app.introText(
                 "OpenFlux - зашифрованный туннель, который маскирует трафик под совместное "
-                        + "редактирование документов. Приложение работает на открытом ядре OpenFlux.",
-                13, app.secondary, false);
-        LinearLayout.LayoutParams introParams = app.matchWrap();
-        introParams.bottomMargin = app.dp(12);
-        section.addView(intro, introParams);
+                        + "редактирование документов. Приложение работает на открытом ядре OpenFlux.");
+        ((LinearLayout.LayoutParams) intro.getLayoutParams()).topMargin = app.dp(ThemedActivity.TILE_GAP);
+        section.addView(intro);
         LinearLayout links = new LinearLayout(app);
         links.setOrientation(LinearLayout.VERTICAL);
         links.addView(aboutLinkRow(R.drawable.ic_github, "Ядро проекта",
@@ -930,29 +932,56 @@ final class SettingsPage {
         links.addView(aboutLinkRow(R.drawable.ic_github, "Приложение",
                 "damnurmum/OpenFlux-Android", MainActivity.APP_REPO_URL), app.matchWrap());
         app.groupTiles(links);
-        section.addView(links, app.matchWrap());
+        section.addView(links, app.tileParams());
 
-        LinearLayout.LayoutParams helpParams = app.matchWrap();
-        helpParams.topMargin = app.dp(26);
-        section.addView(buildHelpCard(), helpParams);
+        // Each card is a section of its own, with its title inside.
+        section.addView(buildDonateCard(), sectionParams());
+        section.addView(buildHelpCard(), sectionParams());
         return section;
     }
 
     // The version rows' titles; the search looks for the same text.
-    private static String appVersionTitle() {
-        return "Приложение " + BuildConfig.VERSION_NAME;
+    private static String nodeVersion() {
+        return BuildConfig.NODE_VERSION.replaceFirst("^node-v", "");
     }
 
-    private static String coreVersionTitle() {
-        return "Ядро " + BuildConfig.CORE_VERSION;
+    // A version tile; dot, when given, shows the update check's color
+    // before the caption.
+    private View versionTile(String version, String caption, View dot) {
+        LinearLayout tile = new LinearLayout(app);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setGravity(Gravity.CENTER);
+        tile.setPadding(app.dp(8), app.dp(16), app.dp(8), app.dp(14));
+        tile.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
+        tile.addView(app.text(version, 20, app.text, true), new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout captionRow = new LinearLayout(app);
+        captionRow.setGravity(Gravity.CENTER_VERTICAL);
+        if (dot != null) {
+            LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(app.dp(7), app.dp(7));
+            dotParams.rightMargin = app.dp(6);
+            captionRow.addView(dot, dotParams);
+        }
+        captionRow.addView(app.text(caption, 12, app.secondary, false));
+        LinearLayout.LayoutParams captionParams = new LinearLayout.LayoutParams(-2, -2);
+        captionParams.topMargin = app.dp(2);
+        tile.addView(captionRow, captionParams);
+        return tile;
     }
 
-    private static String nodeVersionTitle() {
-        return "Выходная нода " + BuildConfig.NODE_VERSION.replaceFirst("^node-v", "");
+    private LinearLayout.LayoutParams sectionParams() {
+        LinearLayout.LayoutParams params = app.matchWrap();
+        params.topMargin = app.dp(ThemedActivity.SECTION_GAP);
+        return params;
     }
 
-    // "Нужна помощь?": where to ask, with the community chats as two buttons.
-    private View buildHelpCard() {
+    private LinearLayout.LayoutParams spacedTile() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1f);
+        params.leftMargin = app.dp(8);
+        return params;
+    }
+
+    // A card on «О проекте»: icon and title, then a paragraph.
+    private LinearLayout aboutCard(int iconRes, String title, String body) {
         LinearLayout card = new LinearLayout(app);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(app.dp(18), app.dp(18), app.dp(18), app.dp(18));
@@ -960,54 +989,99 @@ final class SettingsPage {
 
         LinearLayout heading = new LinearLayout(app);
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        heading.addView(app.iconBubble(R.drawable.ic_help), new LinearLayout.LayoutParams(app.dp(40), app.dp(40)));
+        heading.addView(app.iconBubble(iconRes), new LinearLayout.LayoutParams(app.dp(40), app.dp(40)));
         LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -2, 1f);
         titleParams.leftMargin = app.dp(14);
-        heading.addView(app.text("Нужна помощь?", 17, app.text, true), titleParams);
+        heading.addView(app.text(title, 17, app.text, true), titleParams);
         card.addView(heading, app.matchWrap());
 
-        TextView body = app.text("Не подключается, транспорт не работает или непонятно, как что-то настроить? "
-                + "Спросите в нашем сообществе: там помогают разработчики и другие пользователи. "
-                + "Чтобы разобраться быстрее, опишите, что делали, и приложите журнал со вкладки «Журнал».",
-                13, app.secondary, false);
-        body.setLineSpacing(app.dp(2), 1f);
+        TextView text = app.text(body, 13, app.secondary, false);
+        text.setLineSpacing(app.dp(2), 1f);
         LinearLayout.LayoutParams bodyParams = app.matchWrap();
         bodyParams.topMargin = app.dp(12);
-        card.addView(body, bodyParams);
-
-        LinearLayout buttons = new LinearLayout(app);
-        buttons.addView(helpButton(R.drawable.ic_telegram, "Telegram", "https://t.me/openflux_chat"),
-                new LinearLayout.LayoutParams(0, app.dp(48), 1f));
-        LinearLayout.LayoutParams discordParams = new LinearLayout.LayoutParams(0, app.dp(48), 1f);
-        discordParams.leftMargin = app.dp(10);
-        buttons.addView(helpButton(R.drawable.ic_discord, "Discord", "https://discord.gg/8a4S3QAh62"), discordParams);
-        LinearLayout.LayoutParams buttonsParams = app.matchWrap();
-        buttonsParams.topMargin = app.dp(16);
-        card.addView(buttons, buttonsParams);
+        card.addView(text, bodyParams);
         return card;
     }
 
-    private View helpButton(int iconRes, String label, String url) {
-        LinearLayout button = new LinearLayout(app);
-        button.setGravity(Gravity.CENTER);
-        button.setBackground(app.tile(app.tonal(0.2f), Color.TRANSPARENT, app.radii(16)));
-        button.setClickable(true);
-        button.setFocusable(true);
-        button.setContentDescription(label);
-        button.addView(app.icon(iconRes, app.accent), new LinearLayout.LayoutParams(app.dp(20), app.dp(20)));
-        TextView text = app.text(label, 14, app.accent, true);
-        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
-        textParams.leftMargin = app.dp(8);
-        button.addView(text, textParams);
-        button.setOnClickListener(v -> {
-            app.bounce(v);
-            app.openUrl(url);
-        });
-        return button;
+    // Two equal buttons side by side, under a card's text.
+    private View buttonPair(View first, View second) {
+        LinearLayout buttons = new LinearLayout(app);
+        buttons.addView(first, new LinearLayout.LayoutParams(0, app.dp(48), 1f));
+        LinearLayout.LayoutParams secondParams = new LinearLayout.LayoutParams(0, app.dp(48), 1f);
+        secondParams.leftMargin = app.dp(10);
+        buttons.addView(second, secondParams);
+        return buttons;
+    }
+
+    // "Нужна помощь?": where to ask, with the community chats as two buttons.
+    private View buildHelpCard() {
+        LinearLayout card = aboutCard(R.drawable.ic_help, "Нужна помощь?",
+                "Не подключается, транспорт не работает или непонятно, как что-то настроить? "
+                        + "Спросите в нашем сообществе: там помогают разработчики и другие пользователи. "
+                        + "Чтобы разобраться быстрее, опишите, что делали, и приложите журнал со вкладки «Журнал».");
+        LinearLayout.LayoutParams buttonsParams = app.matchWrap();
+        buttonsParams.topMargin = app.dp(16);
+        card.addView(buttonPair(
+                cardButton(R.drawable.ic_telegram, "Telegram", () -> app.openUrl("https://t.me/openflux_chat")),
+                cardButton(R.drawable.ic_discord, "Discord", () -> app.openUrl("https://discord.gg/8a4S3QAh62"))),
+                buttonsParams);
+        return card;
+    }
+
+    // "Поблагодарить автора": the TON wallet address, to copy or open in a
+    // wallet app (ton://transfer, which TON wallets handle).
+    private View buildDonateCard() {
+        LinearLayout card = aboutCard(R.drawable.ic_donate, "Поблагодарить автора",
+                "Приложение развивается в свободное время. Если оно вам помогает, можно отправить "
+                        + "Gram (TON) или USDT в сети TON на этот адрес:");
+
+        TextView address = app.text(DONATE_ADDRESS, 13, app.text, false);
+        address.setTypeface(Typeface.MONOSPACE);
+        address.setTextIsSelectable(true);
+        address.setPadding(app.dp(14), app.dp(12), app.dp(14), app.dp(12));
+        address.setBackground(app.rounded(app.tonal(0.1f), Color.TRANSPARENT, 0, 12));
+        LinearLayout.LayoutParams addressParams = app.matchWrap();
+        addressParams.topMargin = app.dp(12);
+        card.addView(address, addressParams);
+
+        LinearLayout.LayoutParams buttonsParams = app.matchWrap();
+        buttonsParams.topMargin = app.dp(12);
+        card.addView(buttonPair(
+                cardButton(R.drawable.ic_copy, "Копировать", () -> {
+                    copyDonateAddress();
+                    // Android 13+ confirms a copy itself.
+                    if (android.os.Build.VERSION.SDK_INT < 33) {
+                        Toast.makeText(app, "Адрес скопирован", Toast.LENGTH_SHORT).show();
+                    }
+                }),
+                cardButton(R.drawable.ic_wallet, "В кошелёк", () -> {
+                    try {
+                        app.startActivity(new Intent(Intent.ACTION_VIEW,
+                                Uri.parse("ton://transfer/" + DONATE_ADDRESS)));
+                    } catch (android.content.ActivityNotFoundException e) {
+                        copyDonateAddress();
+                        Toast.makeText(app, "Кошелёк TON не найден, адрес скопирован", Toast.LENGTH_LONG).show();
+                    }
+                })),
+                buttonsParams);
+        return card;
+    }
+
+    static final String DONATE_ADDRESS = "UQBNK1hutrzHnRYUAi78IFhKJOb3hDT84VsSWqN-MkV-c6fJ";
+
+    private void copyDonateAddress() {
+        ClipboardManager clipboard = app.getSystemService(ClipboardManager.class);
+        clipboard.setPrimaryClip(ClipData.newPlainText("TON", DONATE_ADDRESS));
+    }
+
+    private View cardButton(int iconRes, String label, Runnable action) {
+        return app.tonalButton(iconRes, label, action);
     }
 
     private View aboutLinkRow(int iconRes, String titleValue, String detailValue, String url) {
         LinearLayout row = app.cardRow(iconRes, titleValue, detailValue);
+        // Opens GitHub outside the app, as Android's settings mark such links.
+        row.addView(app.icon(R.drawable.ic_open_in_new, app.hint), new LinearLayout.LayoutParams(app.dp(20), app.dp(20)));
         row.setClickable(true);
         row.setFocusable(true);
         row.setOnClickListener(v -> {
