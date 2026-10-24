@@ -138,7 +138,7 @@ final class Profile {
         if ("mailru".equals(type)) return "Mail.ru Docs";
         if ("cupsonline".equals(type)) return "Cups.online";
         if ("avito".equals(type)) return "Avito Code";
-        if ("telemost".equals(type)) return "Яндекс Телемост";
+        if ("telemost".equals(type)) return "Yandex Telemost";
         if ("oneme".equals(type)) return "MAX (OneMe)";
         if ("script".equals(type)) return "JS-транспорт";
         return "Yandex Docs";
