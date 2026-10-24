@@ -12,13 +12,16 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 import org.json.JSONObject;
 import android.util.Base64;
@@ -62,10 +65,10 @@ final class ProfileEditor {
     private View sessionFieldsContainer;
     private View codecSection;
     private View urlField;
-    private TextView encryptionHintView;
+    private LinearLayout encryptionStatus;
+    private View addExtraButton;
     private View encryptionSection;
     private View streamHintView;
-    private EditText priorityInput;
     private LinearLayout extrasList;
     EditText profileNameInput;
     private boolean encryptionVisible;
@@ -123,7 +126,7 @@ final class ProfileEditor {
                     Toast.LENGTH_LONG).show();
             return;
         }
-        int mainPriority = MainActivity.parsePriority(priorityInput != null ? priorityInput.getText().toString() : "", 50);
+        int mainPriority = editorPriority;
         if (editorSession) {
             if (secret.length() < 16) {
                 Toast.makeText(app, "Для режима Session нужен ключ шифрования не короче 16 символов",
@@ -196,7 +199,7 @@ final class ProfileEditor {
         LinearLayout section = app.page();
 
         FrameLayout nameField = new FrameLayout(app);
-        nameField.setBackground(app.rounded(app.surface, app.border, 1, 10));
+        nameField.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
         profileNameInput = app.settingInput("Название профиля", existing != null ? existing.name : "",
                 InputType.TYPE_CLASS_TEXT);
         profileNameInput.setPadding(app.dp(16), 0, app.dp(16), 0);
@@ -204,41 +207,20 @@ final class ProfileEditor {
         LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(-1, app.dp(ThemedActivity.FIELD_HEIGHT));
         section.addView(app.floating(nameField, profileNameInput), nameParams);
 
-        TextView modeLabel = app.label("РЕЖИМ");
-        LinearLayout.LayoutParams modeLabelParams = app.matchWrap();
-        modeLabelParams.topMargin = app.dp(18);
-        modeLabelParams.bottomMargin = app.dp(8);
-        section.addView(modeLabel, modeLabelParams);
-        section.addView(buildSessionModeSelector(), app.matchWrap());
+        section.addView(app.sectionTitle(section, "РЕЖИМ"));
+        section.addView(buildSessionModeSelector(), app.tileParams());
 
-        TextView transportTypeLabel = app.label("ТРАНСПОРТ");
-        LinearLayout.LayoutParams transportTypeLabelParams = app.matchWrap();
-        transportTypeLabelParams.topMargin = app.dp(18);
-        transportTypeLabelParams.bottomMargin = app.dp(8);
-        section.addView(transportTypeLabel, transportTypeLabelParams);
-        section.addView(buildTransportTypeSelector(), app.matchWrap());
+        section.addView(app.sectionTitle(section, "ТРАНСПОРТ"));
+        section.addView(buildTransportTypeSelector(), app.tileParams());
 
-        LinearLayout.LayoutParams maxFieldsParams = app.matchWrap();
-        maxFieldsParams.topMargin = app.dp(8);
+        // What the picked transport connects with: the document link, or
+        // MAX's token and user id, and a JS transport's own settings.
+        section.addView(app.sectionTitle(section, "НАСТРОЙКА ТРАНСПОРТА"));
         maxFieldsContainer = buildMaxFields(existing);
         maxFieldsContainer.setVisibility("oneme".equals(editorTransportType) ? View.VISIBLE : View.GONE);
-        section.addView(maxFieldsContainer, maxFieldsParams);
+        section.addView(maxFieldsContainer, app.matchWrap());
 
-        // Session always uses the batched codec, so the choice only exists in
-        // classic mode.
-        LinearLayout codecBox = new LinearLayout(app);
-        codecBox.setOrientation(LinearLayout.VERTICAL);
-        TextView codecLabel = app.label("КОДЕК");
-        LinearLayout.LayoutParams codecLabelParams = app.matchWrap();
-        codecLabelParams.topMargin = app.dp(18);
-        codecLabelParams.bottomMargin = app.dp(8);
-        codecBox.addView(codecLabel, codecLabelParams);
-        codecBox.addView(buildCodecSelector(), app.matchWrap());
-        codecSection = codecBox;
-        section.addView(codecBox, app.matchWrap());
-
-        LinearLayout.LayoutParams urlParams = new LinearLayout.LayoutParams(-1, app.dp(ThemedActivity.FIELD_HEIGHT));
-        urlParams.topMargin = app.dp(10);
+        LinearLayout.LayoutParams urlParams = app.fieldParams();
         urlField = buildUrlField(initialUrl);
         // MAX has its own token field above; the link field would duplicate it.
         urlField.setVisibility("oneme".equals(editorTransportType) ? View.GONE : View.VISIBLE);
@@ -262,69 +244,50 @@ final class ProfileEditor {
         section.addView(scriptSettings, new LinearLayout.LayoutParams(-1, app.dp(44)));
         updateScriptSettingsButton();
 
-        TextView streamHint = app.text("Выход - PHP-нода на обычном хостинге (deploy/phpbox), связь с ней через "
+        TextView streamHint = app.fieldHint("Выход - PHP-нода на обычном хостинге (deploy/phpbox), связь с ней через "
                 + "одну комнату Cups.online или документ Mail.ru. Ключа и Session нет: содержимое защищает "
                 + "TLS самих приложений. Через PHP-ноду идёт только TCP на портах 80 и 443 (сайты и большинство "
-                + "приложений); в режиме туннеля остальной UDP (звонки, игры, QUIC) и IPv6 отбрасываются.",
-                11, app.secondary, false);
+                + "приложений); в режиме туннеля остальной UDP (звонки, игры, QUIC) и IPv6 отбрасываются.");
         streamHintView = streamHint;
-        LinearLayout.LayoutParams streamHintParams = app.matchWrap();
-        streamHintParams.topMargin = app.dp(8);
-        streamHintParams.leftMargin = app.dp(4);
-        streamHintParams.rightMargin = app.dp(4);
-        section.addView(streamHint, streamHintParams);
+        section.addView(streamHint);
+
+        // Sections that come and go with the mode carry their title inside,
+        // so it hides with them.
+        // Session always uses the batched codec, so the choice only exists in
+        // classic mode.
+        LinearLayout codecBox = new LinearLayout(app);
+        codecBox.setOrientation(LinearLayout.VERTICAL);
+        codecBox.addView(app.sectionTitle(codecBox, "КОДЕК"));
+        codecBox.addView(buildCodecSelector(), app.tileParams());
+        codecSection = codecBox;
+        section.addView(codecBox, sectionBoxParams());
 
         // The key, its hint and the generator; the stream mode has no key.
         LinearLayout encryptionBox = new LinearLayout(app);
         encryptionBox.setOrientation(LinearLayout.VERTICAL);
         encryptionSection = encryptionBox;
-        section.addView(encryptionBox, app.matchWrap());
-        LinearLayout.LayoutParams encryptionParams = new LinearLayout.LayoutParams(-1, app.dp(ThemedActivity.FIELD_HEIGHT));
-        encryptionParams.topMargin = app.dp(8);
-        encryptionBox.addView(buildEncryptionField(initialSecret), encryptionParams);
-        TextView encryptionHint = app.text("", 11, app.secondary, false);
-        encryptionHintView = encryptionHint;
-        LinearLayout.LayoutParams encryptionHintParams = app.matchWrap();
-        encryptionHintParams.topMargin = app.dp(5);
-        encryptionHintParams.leftMargin = app.dp(4);
-        encryptionHintParams.rightMargin = app.dp(4);
-        encryptionBox.addView(encryptionHint, encryptionHintParams);
-        Button generateKey = new Button(app);
-        generateKey.setText("Сгенерировать безопасный ключ");
-        generateKey.setAllCaps(false);
-        generateKey.setTextColor(app.accent);
-        generateKey.setTextSize(13);
-        generateKey.setStateListAnimator(null);
-        generateKey.setBackground(app.ripple(Color.TRANSPARENT, 9));
-        generateKey.setOnClickListener(v -> {
-            app.tap(v);
-            generateEncryptionSecret();
-        });
-        LinearLayout.LayoutParams generateParams = new LinearLayout.LayoutParams(-1, app.dp(44));
-        generateParams.topMargin = app.dp(4);
-        encryptionBox.addView(generateKey, generateParams);
+        section.addView(encryptionBox, sectionBoxParams());
+        encryptionBox.addView(app.sectionTitle(encryptionBox, "ШИФРОВАНИЕ"));
+        encryptionBox.addView(buildEncryptionField(initialSecret), app.fieldParams());
+        // Whether the key will do, as it is typed; see updateKeyStatus.
+        encryptionStatus = app.callout();
+        encryptionBox.addView(encryptionStatus, app.tileParams());
+        ThemedActivity.bindText(encryptionInput, value -> updateKeyStatus());
+        LinearLayout.LayoutParams generateParams = new LinearLayout.LayoutParams(-1, app.dp(48));
+        generateParams.topMargin = app.dp(12);
+        encryptionBox.addView(app.tonalButton(R.drawable.ic_key, "Сгенерировать ключ",
+                this::generateEncryptionSecret), generateParams);
 
         sessionFieldsContainer = buildSessionFields();
-        section.addView(sessionFieldsContainer, app.matchWrap());
+        section.addView(sessionFieldsContainer, sectionBoxParams());
         applySessionVisibility();
 
         if (existing != null) {
             Profile toDelete = existing;
-            Button delete = new Button(app);
-            delete.setText("Удалить профиль");
-            delete.setAllCaps(false);
-            delete.setTextColor(app.darkMode ? Color.rgb(242, 139, 130) : Color.rgb(217, 48, 37));
-            delete.setTextSize(14);
-            delete.setStateListAnimator(null);
-            delete.setBackground(app.ripple(Color.TRANSPARENT, 9));
-            delete.setOnClickListener(v -> {
-                app.tap(v);
-                app.deleteProfile(toDelete);
-            });
-            LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(-1, app.dp(44));
-            deleteParams.topMargin = app.dp(6);
-            deleteParams.bottomMargin = app.dp(12);
-            section.addView(delete, deleteParams);
+            // Apart from the settings above: it removes the whole profile.
+            section.addView(app.pageDivider());
+            section.addView(app.dangerButton(R.drawable.ic_delete, "Удалить профиль",
+                    () -> app.deleteProfile(toDelete)), app.buttonParams());
         }
         return section;
     }
@@ -357,7 +320,7 @@ final class ProfileEditor {
     private void updateScriptSettingsButton() {
         if (scriptSettingsButton == null) return;
         ScriptStore.Script script = "script".equals(editorTransportType) ? new ScriptStore(app).byId(editorScriptId) : null;
-        scriptSettingsButton.setVisibility(script != null && script.hasSettings() ? View.VISIBLE : View.GONE);
+        app.setViewVisibleAnimated(scriptSettingsButton, script != null && script.hasSettings());
     }
 
     // Opens a JS transport's settings page (the core builds it from what the
@@ -445,180 +408,337 @@ final class ProfileEditor {
         }
     }
 
+    // Shows the sections the mode uses; sliding them, like other pages do,
+    // once the editor is on screen (while it is being built, nothing moves).
     private void applySessionVisibility() {
-        if (sessionFieldsContainer != null) {
-            sessionFieldsContainer.setVisibility(editorSession ? View.VISIBLE : View.GONE);
-        }
-        if (codecSection != null) codecSection.setVisibility(editorSession || editorStream ? View.GONE : View.VISIBLE);
-        if (encryptionSection != null) encryptionSection.setVisibility(editorStream ? View.GONE : View.VISIBLE);
-        if (streamHintView != null) streamHintView.setVisibility(editorStream ? View.VISIBLE : View.GONE);
+        if (sessionFieldsContainer != null) app.setViewVisibleAnimated(sessionFieldsContainer, editorSession);
+        if (codecSection != null) app.setViewVisibleAnimated(codecSection, !editorSession && !editorStream);
+        if (encryptionSection != null) app.setViewVisibleAnimated(encryptionSection, !editorStream);
+        if (streamHintView != null) app.setViewVisibleAnimated(streamHintView, editorStream);
         ThemedActivity.setFloatingLabel(urlInput, editorValueLabel());
-        // Session cannot run without the key; classic mode can.
-        ThemedActivity.setFloatingLabel(encryptionInput, editorSession
-                ? "Ключ сквозного шифрования" : "Ключ сквозного шифрования (необязательно)");
-        if (encryptionHintView != null) {
-            encryptionHintView.setText(editorSession
-                    ? "Обязателен для Session: одинаковый секрет (минимум 16 символов) на телефоне и ноде."
-                    : "Необязательно: оставьте пустым, чтобы подключаться без сквозного шифрования "
-                            + "(например, к обычному exit-node апстрима). Если заполняете - нужен "
-                            + "одинаковый секрет (минимум 16 символов) на телефоне и VDS.");
+        updateKeyStatus();
+    }
+
+    // The line under the key: Session cannot run without one, classic can
+    // but then nothing is encrypted end to end (old upstream nodes only).
+    private void updateKeyStatus() {
+        if (encryptionStatus == null || encryptionInput == null) return;
+        int length = encryptionInput.getText().toString().trim().length();
+        if (length >= 16) {
+            app.setCallout(encryptionStatus, true, "Ключ подходит. На ноде должен быть такой же.");
+        } else if (length > 0) {
+            app.setCallout(encryptionStatus, false, "Нужно не меньше 16 символов, ещё " + (16 - length) + ".");
+        } else if (editorSession) {
+            app.setCallout(encryptionStatus, false,
+                    "Обязателен в режиме Session: тот же ключ, что на ноде, не меньше 16 символов.");
+        } else {
+            app.setCallout(encryptionStatus, false,
+                    "Без ключа трафик не шифруется: так можно подключаться только к старым нодам без ключа.");
         }
+    }
+
+    // A block that shows and hides with the mode: a section gap above it.
+    private LinearLayout.LayoutParams sectionBoxParams() {
+        LinearLayout.LayoutParams params = app.matchWrap();
+        params.topMargin = app.dp(ThemedActivity.SECTION_GAP);
+        return params;
     }
 
     private View buildSessionFields() {
         LinearLayout box = new LinearLayout(app);
         box.setOrientation(LinearLayout.VERTICAL);
 
-        TextView sessionLabel = app.label("SESSION");
-        LinearLayout.LayoutParams sessionLabelParams = app.matchWrap();
-        sessionLabelParams.topMargin = app.dp(18);
-        sessionLabelParams.bottomMargin = app.dp(6);
-        box.addView(sessionLabel, sessionLabelParams);
-        TextView hintView = app.text(
-                "Все транспорты работают одновременно, трафик идёт по самому приоритетному "
-                        + "из работающих, при его отказе - по следующему. Нода должна быть запущена "
-                        + "с --negotiate и теми же транспортами (--transports), в --url - ссылка "
-                        + "самого приоритетного транспорта с документом. Ключ шифрования обязателен.",
-                11, app.secondary, false);
-        LinearLayout.LayoutParams hintParams = app.matchWrap();
-        hintParams.leftMargin = app.dp(4);
-        hintParams.rightMargin = app.dp(4);
-        box.addView(hintView, hintParams);
+        box.addView(app.sectionTitle(box, "SESSION"));
+        box.addView(app.fieldHint(
+                "Все транспорты работают сразу: трафик идёт через самый верхний из работающих, "
+                        + "при его отказе - через следующий. На ноде должны быть те же транспорты."));
 
-        priorityInput = app.settingInput("Приоритет основного транспорта (больше - важнее)",
-                Integer.toString(editorPriority), InputType.TYPE_CLASS_NUMBER);
-        app.boxedInput(box, priorityInput, app.dp(16));
-
-        TextView extrasLabel = app.label("ДОПОЛНИТЕЛЬНЫЕ ТРАНСПОРТЫ");
-        LinearLayout.LayoutParams extrasLabelParams = app.matchWrap();
-        extrasLabelParams.topMargin = app.dp(18);
-        box.addView(extrasLabel, extrasLabelParams);
-
+        box.addView(app.sectionTitle(box, "ТРАНСПОРТЫ"));
         extrasList = new LinearLayout(app);
         extrasList.setOrientation(LinearLayout.VERTICAL);
         box.addView(extrasList, app.matchWrap());
-        refreshExtras();
 
-        Button add = new Button(app);
-        add.setText("Добавить транспорт");
-        add.setAllCaps(false);
-        add.setTextColor(app.accent);
-        add.setTextSize(13);
-        add.setStateListAnimator(null);
-        add.setBackground(app.ripple(Color.TRANSPARENT, 9));
-        add.setOnClickListener(v -> {
-            app.tap(v);
-            editorExtras.add(new Profile.Transport());
+        addExtraButton = app.tonalButton(R.drawable.ic_add, "Добавить транспорт", () -> {
+            List<Object> order = orderedTransports();
+            Profile.Transport added = new Profile.Transport();
+            editorExtras.add(added);
+            // A new one goes to the bottom: the least important.
+            order.add(added);
+            applyOrder(order);
             refreshExtras();
         });
-        LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(-1, app.dp(44));
-        addParams.topMargin = app.dp(4);
-        box.addView(add, addParams);
+        box.addView(addExtraButton, app.tileParams());
+        ((LinearLayout.LayoutParams) addExtraButton.getLayoutParams()).height = app.dp(48);
+        refreshExtras();
         return box;
     }
 
-    private void refreshExtras() {
-        if (extrasList == null) return;
-        extrasList.removeAllViews();
-        for (Profile.Transport t : editorExtras) {
-            LinearLayout.LayoutParams rowParams = app.matchWrap();
-            rowParams.topMargin = app.dp(8);
-            extrasList.addView(buildExtraTransportRow(t), rowParams);
+    // The main transport's place in the Session list.
+    private static final Object MAIN = new Object();
+
+    // The main transport and the extras, the most important first: the order
+    // is the priority. Ties keep the main one first, then the list's order.
+    private List<Object> orderedTransports() {
+        List<Object> order = new java.util.ArrayList<>();
+        order.add(MAIN);
+        order.addAll(editorExtras);
+        java.util.Collections.sort(order, (a, b) -> Integer.compare(priorityOf(b), priorityOf(a)));
+        return order;
+    }
+
+    private int priorityOf(Object item) {
+        return item == MAIN ? editorPriority : ((Profile.Transport) item).priority;
+    }
+
+    // Priorities from the order: 10 apart, the top one highest.
+    private void applyOrder(List<Object> order) {
+        for (int i = 0; i < order.size(); i++) {
+            int priority = (order.size() - i) * 10;
+            if (order.get(i) == MAIN) editorPriority = priority;
+            else ((Profile.Transport) order.get(i)).priority = priority;
         }
     }
 
-    private View buildExtraTransportRow(Profile.Transport t) {
+    // The Session list: nothing until there is an extra transport, then a
+    // card for the main one and one for each extra, in priority order.
+    private void refreshExtras() {
+        if (extrasList == null) return;
+        extrasList.removeAllViews();
+        if (editorExtras.isEmpty()) return;
+        List<Object> order = orderedTransports();
+        Map<Object, View> cards = new HashMap<>();
+        Map<Object, View[]> arrows = new HashMap<>();
+        for (Object item : order) {
+            View[] upDown = new View[2];
+            cards.put(item, item == MAIN ? buildMainTransportCard(upDown, order, cards, arrows)
+                    : buildExtraTransportRow((Profile.Transport) item, upDown, order, cards, arrows));
+            arrows.put(item, upDown);
+        }
+        layoutCards(order, cards, arrows);
+    }
+
+    // Puts the cards in order (the same views, so a move slides them) and
+    // dims the arrow that has nowhere to go.
+    private void layoutCards(List<Object> order, Map<Object, View> cards, Map<Object, View[]> arrows) {
+        extrasList.removeAllViews();
+        for (int i = 0; i < order.size(); i++) {
+            Object item = order.get(i);
+            // TILE_GAP above each, the first one too (under the section title).
+            extrasList.addView(cards.get(item), app.tileParams());
+            View[] upDown = arrows.get(item);
+            upDown[0].setEnabled(i > 0);
+            upDown[0].setAlpha(i > 0 ? 1f : 0.3f);
+            upDown[1].setEnabled(i < order.size() - 1);
+            upDown[1].setAlpha(i < order.size() - 1 ? 1f : 0.3f);
+        }
+    }
+
+    // ↑ and ↓ for a card; they swap it with its neighbour and renumber.
+    private void addMoveArrows(LinearLayout row, Object item, View[] upDown, List<Object> order,
+            Map<Object, View> cards, Map<Object, View[]> arrows) {
+        for (int k = 0; k < 2; k++) {
+            int step = k == 0 ? -1 : 1;
+            ImageButton arrow = app.iconButton(R.drawable.ic_chevron_right, k == 0 ? "Выше" : "Ниже");
+            arrow.setRotation(k == 0 ? -90 : 90);
+            arrow.setOnClickListener(v -> {
+                int from = order.indexOf(item), to = from + step;
+                if (to < 0 || to >= order.size()) return;
+                app.tap(v);
+                java.util.Collections.swap(order, from, to);
+                applyOrder(order);
+                android.transition.TransitionManager.beginDelayedTransition(extrasList,
+                        new android.transition.ChangeBounds().setDuration(260).setInterpolator(ThemedActivity.EMPHASIZED));
+                layoutCards(order, cards, arrows);
+            });
+            row.addView(arrow, new LinearLayout.LayoutParams(app.dp(40), app.dp(40)));
+            upDown[k] = arrow;
+        }
+    }
+
+    // A transport card: a rounded box, its header row first.
+    private LinearLayout transportCard() {
         LinearLayout card = new LinearLayout(app);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(app.rounded(app.surface, app.border, 1, 20));
-        card.setPadding(app.dp(14), app.dp(4), app.dp(14), app.dp(14));
+        // The icon sits as far from the top edge as from the left one.
+        card.setPadding(app.dp(12), app.dp(12), app.dp(12), app.dp(12));
+        card.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
+        return card;
+    }
 
-        LinearLayout header = new LinearLayout(app);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(app.text(app.carrierLabel(t.type, t.scriptId), 15, app.text, true), new LinearLayout.LayoutParams(0, -2, 1f));
-        Button remove = new Button(app);
-        remove.setText("Удалить");
-        remove.setAllCaps(false);
-        remove.setTextColor(app.darkMode ? Color.rgb(242, 139, 130) : Color.rgb(217, 48, 37));
-        remove.setTextSize(13);
-        remove.setStateListAnimator(null);
-        remove.setBackground(app.ripple(Color.TRANSPARENT, 9));
-        remove.setOnClickListener(v -> {
-            app.tap(v);
-            editorExtras.remove(t);
-            refreshExtras();
-        });
-        header.addView(remove, new LinearLayout.LayoutParams(-2, app.dp(44)));
+    private LinearLayout cardHeader(int icon, String title, String detail) {
+        LinearLayout row = new LinearLayout(app);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(app.iconBubble(icon), new LinearLayout.LayoutParams(app.dp(40), app.dp(40)));
+        LinearLayout copy = new LinearLayout(app);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        TextView name = app.text(title, 15, app.text, true);
+        name.setSingleLine(true);
+        name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        copy.addView(name);
+        TextView sub = app.text(detail, 12, app.secondary, false);
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        copy.addView(sub);
+        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, -2, 1f);
+        copyParams.leftMargin = app.dp(12);
+        row.addView(copy, copyParams);
+        return row;
+    }
+
+    // The main transport in the list: its link is set above, so here only
+    // its place.
+    private View buildMainTransportCard(View[] upDown, List<Object> order, Map<Object, View> cards,
+            Map<Object, View[]> arrows) {
+        LinearLayout card = transportCard();
+        Profile.Transport main = new Profile.Transport();
+        main.type = editorTransportType;
+        main.scriptId = editorScriptId;
+        LinearLayout header = cardHeader(app.profileTransportIcon(singleTransport(editorTransportType)),
+                shortTransportName(main), "Основной транспорт");
+        addMoveArrows(header, MAIN, upDown, order, cards, arrows);
         card.addView(header, app.matchWrap());
+        return card;
+    }
 
-        List<ScriptStore.Script> scripts = new ScriptStore(app).usable();
-        boolean js = !scripts.isEmpty() || "script".equals(t.type);
-        String[] types = js ? new String[]{"direct", "yandex", "vyandex", "boards", "telemost", "mailru", "cupsonline", "avito", "oneme", "script"}
-                : new String[]{"direct", "yandex", "vyandex", "boards", "telemost", "mailru", "cupsonline", "avito", "oneme"};
-        String[] typeLabels = js ? new String[]{"Direct", "Yandex", "Volga", "Board", "Телемост", "Mail.ru", "Cups", "Avito", "MAX", "JS"}
-                : new String[]{"Direct", "Yandex", "Volga", "Board", "Телемост", "Mail.ru", "Cups", "Avito", "MAX"};
-        card.addView(app.chips(typeLabels, java.util.Arrays.asList(types).indexOf(t.type), i -> {
-            t.type = types[i];
-            t.value = "";
-            t.uid = "";
-            t.scriptId = "";
-            t.settings = new JSONObject();
-            refreshExtras();
-        }), app.matchWrap());
-
-        if ("script".equals(t.type)) {
-            String[] names = new String[scripts.size()];
-            for (int i = 0; i < names.length; i++) names[i] = scripts.get(i).name;
-            int picked = -1;
-            for (int i = 0; i < names.length; i++) if (scripts.get(i).id.equals(t.scriptId)) picked = i;
-            if (names.length == 0) {
-                card.addView(app.text("Нет включённых JS-транспортов: «Настройки» → «JS-транспорты».", 12, app.secondary, false));
-            } else {
-                card.addView(app.chips(names, picked, i -> {
-                    t.scriptId = scripts.get(i).id;
-                    t.settings = new JSONObject();
-                    refreshExtras();
-                }), app.matchWrap());
-            }
+    // One extra transport's card: its transport (tap to pick another), the
+    // arrows and the bin, then the field it connects with (and MAX's user
+    // id, a JS transport's settings).
+    private View buildExtraTransportRow(Profile.Transport t, View[] upDown, List<Object> order,
+            Map<Object, View> cards, Map<Object, View[]> arrows) {
+        LinearLayout card = transportCard();
+        List<String[]> options = new java.util.ArrayList<>();
+        List<Integer> icons = new java.util.ArrayList<>();
+        List<String[]> keys = new java.util.ArrayList<>();
+        extraTransportOptions(options, icons, keys);
+        int current = -1;
+        for (int i = 0; i < keys.size(); i++) {
+            String[] key = keys.get(i);
+            if (key[0].equals(t.type) && (!"script".equals(t.type) || key[1].equals(t.scriptId))) current = i;
         }
 
+        LinearLayout header = cardHeader(current >= 0 ? icons.get(current) : R.drawable.ic_public,
+                shortTransportName(t), "Нажмите, чтобы сменить");
+        header.setBackground(app.ripple(Color.TRANSPARENT, 12));
+        header.setClickable(true);
+        header.setContentDescription("Транспорт: " + shortTransportName(t) + ". Нажмите, чтобы выбрать другой");
+        int picked = current;
+        header.setOnClickListener(v -> {
+            app.tap(v);
+            pickExtraTransport(t, options, icons, keys, picked);
+        });
+        addMoveArrows(header, t, upDown, order, cards, arrows);
+        card.addView(header, app.matchWrap());
+
+        LinearLayout fields = new LinearLayout(app);
+        fields.setOrientation(LinearLayout.VERTICAL);
+        card.addView(fields, app.matchWrap());
         boolean max = "oneme".equals(t.type);
-        boolean direct = "direct".equals(t.type);
         boolean script = "script".equals(t.type);
         EditText value = app.settingInput(script ? scriptValueLabel(t.scriptId) : transportValueLabel(t.type), t.value,
                 max ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD
                         : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         ThemedActivity.bindText(value, v -> t.value = v);
-        app.boxedInput(card, value, app.dp(12));
-        ScriptStore.Script installed = script ? new ScriptStore(app).byId(t.scriptId) : null;
-        if (installed != null && installed.hasSettings()) {
-            Button settings = new Button(app);
-            settings.setText("Настройки транспорта");
-            settings.setAllCaps(false);
-            settings.setTextColor(app.accent);
-            settings.setTextSize(13);
-            settings.setStateListAnimator(null);
-            settings.setBackground(app.ripple(Color.TRANSPARENT, 9));
-            settings.setOnClickListener(v -> {
-                app.tap(v);
-                openScriptSettings(t.scriptId, t.value, t.settings, (newValue, rest) -> {
-                    if (newValue != null) t.value = newValue;
-                    t.settings = rest;
-                    refreshExtras();
-                });
-            });
-            card.addView(settings, new LinearLayout.LayoutParams(-1, app.dp(44)));
-        }
+        app.boxedInput(fields, value, app.dp(ThemedActivity.TILE_GAP));
         if (max) {
             EditText uid = app.settingInput("MAX call user id", t.uid, InputType.TYPE_CLASS_NUMBER);
             ThemedActivity.bindText(uid, v -> t.uid = v);
-            app.boxedInput(card, uid, app.dp(12));
+            app.boxedInput(fields, uid, app.dp(ThemedActivity.TILE_GAP));
         }
-        EditText priority = app.settingInput("Приоритет (больше - важнее)", Integer.toString(t.priority),
-                InputType.TYPE_CLASS_NUMBER);
-        ThemedActivity.bindText(priority, v -> t.priority = MainActivity.parsePriority(v, t.priority));
-        app.boxedInput(card, priority, app.dp(12));
+        ScriptStore.Script installed = script ? new ScriptStore(app).byId(t.scriptId) : null;
+        if (installed != null && installed.hasSettings()) {
+            fields.addView(app.tonalButton(R.drawable.ic_settings, "Настройки транспорта", () ->
+                    openScriptSettings(t.scriptId, t.value, t.settings, (newValue, rest) -> {
+                        if (newValue != null) t.value = newValue;
+                        t.settings = rest;
+                        refreshExtras();
+                    })), app.buttonParams());
+        }
+        // Last in the card, so a tap on it is not a slip near the arrows.
+        fields.addView(app.dangerButton(R.drawable.ic_delete, "Удалить транспорт", () -> {
+            editorExtras.remove(t);
+            refreshExtras();
+        }), app.buttonParams());
         return card;
+    }
+
+    // Every transport an extra can be: Direct, the built-in ones, then each
+    // enabled JS transport as its own entry. keys hold {type, scriptId}.
+    private void extraTransportOptions(List<String[]> options, List<Integer> icons, List<String[]> keys) {
+        options.add(new String[]{"Direct (TCP до ноды)", "Прямое подключение к порту ноды"});
+        icons.add(R.drawable.ic_link);
+        keys.add(new String[]{"direct", ""});
+        String[][] builtIn = {
+                {"yandex", "Yandex Docs", "Документ Яндекса"},
+                {"vyandex", "Yandex Docs (Volga)", "Экспериментальный"},
+                {"boards", "Yandex Board", "Доска Яндекса, экспериментальный"},
+                {"telemost", "Yandex Telemost", "Конференция Телемоста, экспериментальный"},
+                {"mailru", "Mail.ru Docs", "Документ в Облаке Mail.ru"},
+                {"cupsonline", "Cups.online", "Комнаты live-coding, код комнат с ноды"},
+                {"avito", "Avito Code", "Комнаты редактора кода Авито, экспериментальный"},
+                {"oneme", "MAX (OneMe)", "Звонок MAX, нужен Web token"},
+        };
+        for (String[] b : builtIn) {
+            options.add(new String[]{b[1], b[2]});
+            icons.add(app.profileTransportIcon(singleTransport(b[0])));
+            keys.add(new String[]{b[0], ""});
+        }
+        for (ScriptStore.Script script : new ScriptStore(app).usable()) {
+            options.add(new String[]{script.name, "JS-транспорт · версия " + script.version});
+            icons.add(R.drawable.ic_code);
+            keys.add(new String[]{"script", script.id});
+        }
+    }
+
+    // The list of transports in a dialog, the current one checked.
+    private void pickExtraTransport(Profile.Transport t, List<String[]> options, List<Integer> icons,
+            List<String[]> keys, int current) {
+        int[] iconArray = new int[icons.size()];
+        for (int i = 0; i < iconArray.length; i++) iconArray[i] = icons.get(i);
+        android.app.AlertDialog[] dialog = new android.app.AlertDialog[1];
+        View list = app.choiceList(options.toArray(new String[0][]), iconArray, current, i -> {
+            t.type = keys.get(i)[0];
+            t.scriptId = keys.get(i)[1];
+            t.value = "";
+            t.uid = "";
+            t.settings = new JSONObject();
+            if (dialog[0] != null) dialog[0].dismiss();
+            refreshExtras();
+        });
+        android.widget.ScrollView scroll = new android.widget.ScrollView(app);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setPadding(app.dp(16), app.dp(8), app.dp(16), app.dp(8));
+        scroll.setClipToPadding(false);
+        scroll.addView(list);
+        dialog[0] = new FlowStyle(app).dialog()
+                .setTitle("Транспорт")
+                .setView(scroll)
+                .setNegativeButton("Отмена", null)
+                .create();
+        dialog[0].show();
+        dialog[0].getButton(android.app.AlertDialog.BUTTON_NEGATIVE).setAllCaps(false);
+    }
+
+    private static String shortTransportName(Profile.Transport t) {
+        switch (t.type) {
+            case "direct": return "Direct";
+            case "yandex": return "Yandex Docs";
+            case "vyandex": return "Volga";
+            case "boards": return "Yandex Board";
+            case "telemost": return "Telemost";
+            case "mailru": return "Mail.ru";
+            case "cupsonline": return "Cups.online";
+            case "avito": return "Avito";
+            case "oneme": return "MAX";
+            case "script": return t.scriptId.isEmpty() ? "JS" : t.scriptId;
+            default: return t.type;
+        }
+    }
+
+    // A one-transport profile, to ask MainActivity for that transport's icon.
+    private static Profile singleTransport(String type) {
+        Profile p = new Profile();
+        p.transportType = type;
+        return p;
     }
 
     // Returns why an extra Session transport can't be saved, or null.
@@ -715,19 +835,14 @@ final class ProfileEditor {
             LinearLayout js = new LinearLayout(app);
             js.setOrientation(LinearLayout.VERTICAL);
             js.addView(app.choiceList(labels, icons, current, i -> pickTransport("script", scripts.get(i).id)));
-            TextView hint = app.text("Работают только в режиме Session. Установить свои: «Настройки» → «JS-транспорты».",
-                    11, app.secondary, false);
-            LinearLayout.LayoutParams hintParams = app.matchWrap();
-            hintParams.topMargin = app.dp(6);
-            hintParams.leftMargin = app.dp(4);
-            js.addView(hint, hintParams);
+            js.addView(app.fieldHint("Работают только в режиме Session. Установить свои: «Настройки» → «JS-транспорты»."));
             list.addView(js);
         };
         boolean scriptTab = "script".equals(editorTransportType);
         // The tabs only once there is a JS transport to offer.
         if (!scripts.isEmpty()) {
             LinearLayout.LayoutParams tabsParams = app.matchWrap();
-            tabsParams.bottomMargin = app.dp(10);
+            tabsParams.bottomMargin = app.dp(ThemedActivity.TILE_GAP);
             box.addView(app.segmented(new String[]{"Встроенные", "JavaScript"}, scriptTab ? 1 : 0, show), tabsParams);
         }
         show.accept(scriptTab && !scripts.isEmpty() ? 1 : 0);
@@ -740,11 +855,13 @@ final class ProfileEditor {
         editorScriptId = scriptId;
         editorTransportType = type;
         updateScriptSettingsButton();
-        if (maxFieldsContainer != null) {
-            maxFieldsContainer.setVisibility("oneme".equals(editorTransportType) ? View.VISIBLE : View.GONE);
-        }
-        ThemedActivity.setFloatingLabel(urlInput, editorValueLabel());
-        if (urlField != null) urlField.setVisibility("oneme".equals(editorTransportType) ? View.GONE : View.VISIBLE);
+        boolean max = "oneme".equals(editorTransportType);
+        if (maxFieldsContainer != null) app.setViewVisibleAnimated(maxFieldsContainer, max);
+        // The link field fades out for MAX: it keeps its old label meanwhile.
+        if (!max) ThemedActivity.setFloatingLabel(urlInput, editorValueLabel());
+        if (urlField != null) app.setViewVisibleAnimated(urlField, !max);
+        // The main transport's card in the Session list shows its new name.
+        refreshExtras();
     }
 
     // MAX (OneMe) authenticates via a web token + numeric user id instead of
@@ -754,23 +871,20 @@ final class ProfileEditor {
         box.setOrientation(LinearLayout.VERTICAL);
 
         FrameLayout tokenField = new FrameLayout(app);
-        tokenField.setBackground(app.rounded(app.surface, app.border, 1, 10));
+        tokenField.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
         maxTokenInput = app.settingInput("MAX Web token", existing != null ? existing.maxToken : "",
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         maxTokenInput.setPadding(app.dp(16), 0, app.dp(16), 0);
         tokenField.addView(maxTokenInput, new FrameLayout.LayoutParams(-1, -1));
-        LinearLayout.LayoutParams tokenParams = new LinearLayout.LayoutParams(-1, app.dp(ThemedActivity.FIELD_HEIGHT));
-        box.addView(app.floating(tokenField, maxTokenInput), tokenParams);
+        box.addView(app.floating(tokenField, maxTokenInput), app.fieldParams());
 
         FrameLayout uidField = new FrameLayout(app);
-        uidField.setBackground(app.rounded(app.surface, app.border, 1, 10));
+        uidField.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
         maxUidInput = app.settingInput("MAX call user id", existing != null ? existing.maxUid : "",
                 InputType.TYPE_CLASS_NUMBER);
         maxUidInput.setPadding(app.dp(16), 0, app.dp(16), 0);
         uidField.addView(maxUidInput, new FrameLayout.LayoutParams(-1, -1));
-        LinearLayout.LayoutParams uidParams = new LinearLayout.LayoutParams(-1, app.dp(ThemedActivity.FIELD_HEIGHT));
-        uidParams.topMargin = app.dp(8);
-        box.addView(app.floating(uidField, maxUidInput), uidParams);
+        box.addView(app.floating(uidField, maxUidInput), app.fieldParams());
 
         return box;
     }
@@ -784,7 +898,7 @@ final class ProfileEditor {
 
     private View buildUrlField(String initialValue) {
         FrameLayout field = new FrameLayout(app);
-        field.setBackground(app.rounded(app.surface, app.border, 1, 10));
+        field.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
         urlInput = app.settingInput(editorValueLabel(), initialValue,
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         urlInput.setTransformationMethod(urlVisible ? null : PasswordTransformationMethod.getInstance());
@@ -804,8 +918,8 @@ final class ProfileEditor {
 
     private View buildEncryptionField(String initialValue) {
         FrameLayout field = new FrameLayout(app);
-        field.setBackground(app.rounded(app.surface, app.border, 1, 10));
-        encryptionInput = app.settingInput("Ключ сквозного шифрования (необязательно)", initialValue,
+        field.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
+        encryptionInput = app.settingInput("Ключ шифрования", initialValue,
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         encryptionInput.setTransformationMethod(encryptionVisible ? null : PasswordTransformationMethod.getInstance());
         encryptionInput.setPadding(app.dp(16), 0, app.dp(56), 0);
@@ -856,6 +970,6 @@ final class ProfileEditor {
             encryptionInput.setText(generated);
             encryptionInput.setSelection(encryptionInput.length());
         }
-        Toast.makeText(app, "Создан ключ на 256 бит. Передайте его на VDS.", Toast.LENGTH_LONG).show();
+        Toast.makeText(app, "Создан ключ на 256 бит. Укажите такой же на ноде.", Toast.LENGTH_LONG).show();
     }
 }
