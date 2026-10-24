@@ -76,7 +76,7 @@ final class ScriptsPanel {
         toggle.addView(row);
         toggle.addView(caption("Транспорты на JavaScript: работают только в режиме Session, рядом с обычными. "
                 + "Пока выключено, движок не запускается и такие транспорты не подключаются.", 12, false));
-        page.addView(toggle, spaced());
+        page.addView(toggle);
         if (!on) return;
 
         LinearLayout actions = new LinearLayout(host);
@@ -84,16 +84,16 @@ final class ScriptsPanel {
         LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(0, dp(46), 1f);
         checkParams.leftMargin = dp(8);
         actions.addView(button("Проверить обновления", false, this::checkAll), checkParams);
-        page.addView(actions, spaced());
+        page.addView(actions, host.tileParams());
 
+        page.addView(host.sectionTitle(page, "УСТАНОВЛЕННЫЕ"));
         if (store.list().isEmpty()) {
             page.addView(caption("Транспортов пока нет: встроенные устанавливаются при включении, "
-                    + "свои можно импортировать по ссылке или из файла.", 13, false), spaced());
+                    + "свои можно импортировать по ссылке или из файла.", 13, false), host.tileParams());
         }
-        for (ScriptStore.Script s : store.list()) page.addView(scriptCard(s), spaced());
-        page.addView(caption("Скрипт-транспорт работает без песочницы: у него полный доступ к сети. Подпись автора "
-                + "обязательна и проверяется при каждом запуске - импортируйте только из доверенного источника.",
-                12, false), spaced());
+        for (ScriptStore.Script s : store.list()) page.addView(scriptCard(s), host.tileParams());
+        page.addView(host.fieldHint("Скрипт-транспорт работает без песочницы: у него полный доступ к сети. Подпись автора "
+                + "обязательна и проверяется при каждом запуске - импортируйте только из доверенного источника."));
     }
 
     private void setExperimental(boolean on) {
@@ -409,7 +409,7 @@ final class ScriptsPanel {
     private LinearLayout card() {
         LinearLayout card = new LinearLayout(host);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(ui.rounded(ui.surface, ui.border, 12));
+        card.setBackground(ui.rounded(ui.surface, ui.border, ThemedActivity.TILE_RADIUS));
         card.setPadding(dp(14), dp(12), dp(14), dp(12));
         return card;
     }
@@ -442,12 +442,6 @@ final class ScriptsPanel {
         input.setTextColor(ui.text);
         input.setHintTextColor(ui.hint);
         return input;
-    }
-
-    private LinearLayout.LayoutParams spaced() {
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.bottomMargin = dp(12);
-        return params;
     }
 
     private LinearLayout.LayoutParams buttonRow() {

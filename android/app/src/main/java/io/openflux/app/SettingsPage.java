@@ -129,7 +129,7 @@ final class SettingsPage {
             items.add(item(SETTINGS_ROUTING, presetIcon(preset.id), preset.title, "обход " + preset.description));
         }
         items.addAll(java.util.Arrays.asList(
-                item(SETTINGS_ROUTING, R.drawable.ic_routing, "Свои домены", "домены сайты обход"),
+                new SearchItem(SETTINGS_ROUTING, R.drawable.ic_routing, "Свои домены", "СВОИ ДОМЕНЫ", "домены сайты обход"),
                 item(SETTINGS_INTERFACE, R.drawable.ic_dark_mode, "Тёмная тема", "тема светлая ночная оформление"),
                 item(SETTINGS_INTERFACE, R.drawable.ic_terminal, "Автопрокрутка логов", "журнал логи прокрутка"),
                 item(SETTINGS_SCRIPTS, R.drawable.ic_code, "Экспериментальные функции", "js javascript скрипты включить"),
@@ -1094,19 +1094,17 @@ final class SettingsPage {
     private View buildNetworkSettings() {
         LinearLayout section = app.page();
 
+        section.addView(app.sectionTitle(section, "DNS"));
         Switch dnsAutoSwitch = app.settingSwitch(R.drawable.ic_public, "DNS-сервер: по умолчанию",
                 "1.1.1.1 через выходную ноду; DNS-запросы в VPN идут через туннель",
                 editorDnsAuto);
-        View dnsAutoRow = (View) dnsAutoSwitch.getTag();
-        section.addView(dnsAutoRow, app.matchWrap());
+        section.addView((View) dnsAutoSwitch.getTag(), app.tileParams());
 
         dnsInput = app.settingInput("DNS-сервер", editorDnsServer,
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         View dnsInputRow = app.settingRow(R.drawable.ic_public, "Свой DNS", dnsInput);
         app.setInitialVisibility(dnsInputRow, !editorDnsAuto);
-        LinearLayout.LayoutParams dnsInputParams = app.matchWrap();
-        dnsInputParams.topMargin = app.dp(8);
-        section.addView(dnsInputRow, dnsInputParams);
+        section.addView(dnsInputRow, app.tileParams());
         View dnsHint = app.fieldHint(
                 "Укажите IPv4-адрес DNS-сервера, доступного с выходной ноды. "
                         + "Имена вроде dns.google здесь не поддерживаются: их пришлось бы разрешать до запуска VPN.");
@@ -1120,15 +1118,15 @@ final class SettingsPage {
             app.setViewVisibleAnimated(dnsHint, !checked);
         });
 
+        section.addView(app.sectionTitle(section, "ТУННЕЛЬ"));
         mtuInput = app.settingInput("MTU", String.valueOf(editorMtu), InputType.TYPE_CLASS_NUMBER);
-        LinearLayout.LayoutParams mtuParams = app.matchWrap();
-        mtuParams.topMargin = app.dp(16);
-        section.addView(app.settingRow(R.drawable.ic_settings, "MTU пакета", mtuInput), mtuParams);
+        section.addView(app.settingRow(R.drawable.ic_settings, "MTU пакета", mtuInput), app.tileParams());
         section.addView(app.fieldHint(
                 "Для чего: максимальный размер пакета в туннеле. Трогать не обязательно - "
                         + "уменьшите (например, до 1280), если сайты грузятся не полностью "
                         + "или соединение обрывается."));
 
+        section.addView(app.sectionTitle(section, "ЗАЩИТА"));
         Switch killSwitchSwitch = app.settingSwitch(R.drawable.ic_lock, "Kill Switch",
                 "Блокировать трафик, если туннель отключился, вместо пропуска мимо него",
                 editorKillSwitchEnabled);
@@ -1136,9 +1134,7 @@ final class SettingsPage {
             app.tap(button);
             editorKillSwitchEnabled = checked;
         });
-        LinearLayout.LayoutParams killSwitchParams = app.matchWrap();
-        killSwitchParams.topMargin = app.dp(16);
-        section.addView((View) killSwitchSwitch.getTag(), killSwitchParams);
+        section.addView((View) killSwitchSwitch.getTag(), app.tileParams());
         section.addView(app.fieldHint(
                 "Включено: при обрыве соединения приложения теряют доступ в сеть, а не "
                         + "продолжают работать в обход туннеля. Выключено: примерно через 30 "
@@ -1188,21 +1184,19 @@ final class SettingsPage {
 
     private View buildRoutingSettings() {
         LinearLayout section = app.page();
-        TextView routingHint = app.text(
+        section.addView(app.introText(
                 "Домены и сервисы ниже подключаются напрямую, в обход туннеля - полезно для "
-                        + "локальных сервисов и всего, что чувствительно к задержке.",
-                12, app.secondary, false);
-        section.addView(routingHint, app.matchWrap());
+                        + "локальных сервисов и всего, что чувствительно к задержке."));
 
         if (!app.isProxyMode()) {
-            TextView tunnelNote = app.text(
+            TextView tunnelNote = app.introText(
                     "Пока работает только в режиме Прокси (SOCKS5). В режиме Туннель настройки "
-                            + "сохранятся, но не применяются - переключите режим работы, чтобы им пользоваться.",
-                    12, app.accent, false);
-            LinearLayout.LayoutParams tunnelNoteParams = app.matchWrap();
-            tunnelNoteParams.topMargin = app.dp(8);
-            section.addView(tunnelNote, tunnelNoteParams);
+                            + "сохранятся, но не применяются - переключите режим работы, чтобы им пользоваться.");
+            tunnelNote.setTextColor(app.accent);
+            section.addView(tunnelNote);
         }
+
+        section.addView(app.sectionTitle(section, "СЕРВИСЫ"));
 
         LinearLayout presets = new LinearLayout(app);
         presets.setOrientation(LinearLayout.VERTICAL);
@@ -1217,13 +1211,9 @@ final class SettingsPage {
             presets.addView((View) presetSwitch.getTag(), app.matchWrap());
         }
         app.groupTiles(presets);
-        LinearLayout.LayoutParams presetsParams = app.matchWrap();
-        presetsParams.topMargin = app.dp(12);
-        section.addView(presets, presetsParams);
+        section.addView(presets, app.tileParams());
 
-        LinearLayout.LayoutParams customLabelParams = app.matchWrap();
-        customLabelParams.topMargin = app.dp(16);
-        section.addView(app.text("Свои домены", 13, app.secondary, false), customLabelParams);
+        section.addView(app.sectionTitle(section, "СВОИ ДОМЕНЫ"));
 
         customDomainsInput = new EditText(app);
         customDomainsInput.setHint("youtube.com\nexample.org");
@@ -1234,11 +1224,9 @@ final class SettingsPage {
         customDomainsInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         customDomainsInput.setMinLines(3);
         customDomainsInput.setGravity(Gravity.TOP | Gravity.START);
-        customDomainsInput.setBackground(app.rounded(app.surface, app.border, 1, 10));
+        customDomainsInput.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
         customDomainsInput.setPadding(app.dp(14), app.dp(12), app.dp(14), app.dp(12));
-        LinearLayout.LayoutParams customInputParams = app.matchWrap();
-        customInputParams.topMargin = app.dp(6);
-        section.addView(customDomainsInput, customInputParams);
+        section.addView(customDomainsInput, app.tileParams());
         section.addView(app.fieldHint("По одному домену на строку, без http:// и путей - например youtube.com."));
 
         return section;
