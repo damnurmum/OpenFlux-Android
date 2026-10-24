@@ -147,17 +147,67 @@ abstract class ThemedActivity extends Activity {
         parent.addView(line, params);
     }
 
-    // Stacks the children of list as one group: 2dp gaps, large outer
-    // corners, small inner ones, each tile with its own ripple.
+    // Lists of tiles (settings sections, choices, app rows) are separate
+    // cards: the same corners all round and a gap between them.
+    static final int TILE_RADIUS = 16;
+    static final int TILE_GAP = 8;
+    // Above a section title, except at the top of a page.
+    static final int SECTION_GAP = 24;
+
+    // Spacing on every settings-like page, so no page needs its own numbers:
+    //   intro text   - 16dp to what follows it (introText);
+    //   section      - uppercase title, SECTION_GAP above it (sectionTitle);
+    //   tile         - TILE_GAP above it, after a title, a tile or a hint (tileParams);
+    //   hint         - 6dp under the tile it explains (fieldHint).
+
+    // A page's opening paragraph.
+    TextView introText(CharSequence value) {
+        TextView intro = text(value, 12, secondary, false);
+        LinearLayout.LayoutParams params = matchWrap();
+        params.bottomMargin = dp(16 - TILE_GAP);
+        intro.setLayoutParams(params);
+        return intro;
+    }
+
+    // An uppercase section title for the end of parent: SECTION_GAP from
+    // what is above (less any room that already leaves below itself); the
+    // tile after it brings its own TILE_GAP.
+    TextView sectionTitle(LinearLayout parent, String title) {
+        TextView label = label(title);
+        LinearLayout.LayoutParams params = matchWrap();
+        int n = parent.getChildCount();
+        if (n > 0) {
+            ViewGroup.LayoutParams last = parent.getChildAt(n - 1).getLayoutParams();
+            int below = last instanceof ViewGroup.MarginLayoutParams ? ((ViewGroup.MarginLayoutParams) last).bottomMargin : 0;
+            params.topMargin = Math.max(0, dp(SECTION_GAP) - below);
+        }
+        label.setLayoutParams(params);
+        return label;
+    }
+
+    LinearLayout.LayoutParams tileParams() {
+        LinearLayout.LayoutParams params = matchWrap();
+        params.topMargin = dp(TILE_GAP);
+        return params;
+    }
+
+    // A floating-label field (floating(), iconTextField) as a tile: TILE_GAP
+    // above it like any tile, plus its own FLOAT_ROOM for the label on the
+    // border, so the label clears what is above by about as much as a tile.
+    LinearLayout.LayoutParams fieldParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(FIELD_HEIGHT));
+        params.topMargin = dp(TILE_GAP);
+        return params;
+    }
+
+    // Lays out the children of list as separate cards, each with its own ripple.
     void groupTiles(LinearLayout list) {
         int n = list.getChildCount();
         for (int i = 0; i < n; i++) {
-            float top = dp(i == 0 ? 24 : 6), bottom = dp(i == n - 1 ? 24 : 6);
             View child = list.getChildAt(i);
-            child.setBackground(tile(surface, border,
-                    new float[]{top, top, top, top, bottom, bottom, bottom, bottom}));
+            child.setBackground(tile(surface, border, radii(TILE_RADIUS)));
             LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) child.getLayoutParams();
-            params.topMargin = i == 0 ? 0 : dp(2);
+            params.topMargin = i == 0 ? 0 : dp(TILE_GAP);
             child.setLayoutParams(params);
         }
     }
@@ -182,7 +232,7 @@ abstract class ThemedActivity extends Activity {
     TextView fieldHint(String value) {
         TextView hint = text(value, 11, secondary, false);
         LinearLayout.LayoutParams params = matchWrap();
-        params.topMargin = dp(5);
+        params.topMargin = dp(6);
         params.leftMargin = dp(4);
         params.rightMargin = dp(4);
         hint.setLayoutParams(params);
@@ -244,8 +294,9 @@ abstract class ThemedActivity extends Activity {
     }
 
     RippleDrawable buttonBackground(int fill, int pressed) {
-        return new RippleDrawable(ColorStateList.valueOf(pressed), rounded(fill, Color.TRANSPARENT, 0, 9),
-                rounded(Color.WHITE, Color.TRANSPARENT, 0, 9));
+        // The same corners as tiles, fields and tonal buttons.
+        return new RippleDrawable(ColorStateList.valueOf(pressed), rounded(fill, Color.TRANSPARENT, 0, TILE_RADIUS),
+                rounded(Color.WHITE, Color.TRANSPARENT, 0, TILE_RADIUS));
     }
 
     android.graphics.drawable.Drawable tile(int fill, int strokeColor, float[] radii) {
@@ -296,9 +347,8 @@ abstract class ThemedActivity extends Activity {
         return check;
     }
 
-    // Single choice as stacked tiles, Android 15-16 style: the group has
-    // large outer corners and small inner ones, the picked tile gets a tonal
-    // fill and a check. options[i] is {title} or {title, subtitle}.
+    // Single choice as separate tiles: the picked one gets a tonal fill and
+    // a check. options[i] is {title} or {title, subtitle}.
     View choiceList(String[][] options, int[] icons, int selected, java.util.function.IntConsumer onPick) {
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -310,9 +360,8 @@ abstract class ThemedActivity extends Activity {
         Runnable paint = () -> {
             for (int i = 0; i < n; i++) {
                 boolean on = i == current[0];
-                float top = dp(i == 0 ? 20 : 6), bottom = dp(i == n - 1 ? 20 : 6);
                 rows[i].setBackground(tile(on ? tonal(0.18f) : surface, on ? tonal(0.45f) : border,
-                        new float[]{top, top, top, top, bottom, bottom, bottom, bottom}));
+                        radii(TILE_RADIUS)));
                 titles[i].setTextColor(on ? accent : text);
                 ImageView check = checks[i];
                 check.animate().cancel();
@@ -357,7 +406,7 @@ abstract class ThemedActivity extends Activity {
             });
             rows[i] = row;
             LinearLayout.LayoutParams params = matchWrap();
-            if (i > 0) params.topMargin = dp(2);
+            if (i > 0) params.topMargin = dp(TILE_GAP);
             list.addView(row, params);
         }
         paint.run();
@@ -518,7 +567,7 @@ abstract class ThemedActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(14), dp(14), dp(14), dp(14));
-        row.setBackground(tile(surface, border, radii(20)));
+        row.setBackground(tile(surface, border, radii(TILE_RADIUS)));
         row.addView(iconBubble(iconRes), new LinearLayout.LayoutParams(dp(40), dp(40)));
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
@@ -542,7 +591,7 @@ abstract class ThemedActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(14), dp(14), dp(16), dp(14));
-        row.setBackground(tile(surface, border, radii(20)));
+        row.setBackground(tile(surface, border, radii(TILE_RADIUS)));
         row.addView(iconBubble(iconRes), new LinearLayout.LayoutParams(dp(40), dp(40)));
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
@@ -558,7 +607,7 @@ abstract class ThemedActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(14), dp(10), dp(10), dp(10));
-        row.setBackground(tile(surface, border, radii(20)));
+        row.setBackground(tile(surface, border, radii(TILE_RADIUS)));
         row.addView(iconBubble(iconRes), new LinearLayout.LayoutParams(dp(40), dp(40)));
         TextView title = text(labelValue, 14, text, false);
         LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, -2, 1f);
@@ -571,7 +620,7 @@ abstract class ThemedActivity extends Activity {
     View paramsCard(String[][] rows) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(rounded(surface, border, 1, 11));
+        card.setBackground(rounded(surface, border, 1, TILE_RADIUS));
         for (int i = 0; i < rows.length; i++) {
             card.addView(paramRow(rows[i][0], rows[i][1]));
             if (i < rows.length - 1) addDivider(card, 0);
@@ -588,6 +637,88 @@ abstract class ThemedActivity extends Activity {
         valueView.setGravity(Gravity.END);
         row.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
         return row;
+    }
+
+    // A tonal button with an icon: the secondary action in a card or block
+    // (copy, share, generate), next to the solid primaryButton.
+    View tonalButton(int iconRes, String label, Runnable action) {
+        return tonalButton(iconRes, label, accent, action);
+    }
+
+    // The red one, for removing something.
+    View dangerButton(int iconRes, String label, Runnable action) {
+        return tonalButton(iconRes, label, darkMode ? Color.rgb(242, 139, 130) : Color.rgb(217, 48, 37), action);
+    }
+
+    View tonalButton(int iconRes, String label, int color, Runnable action) {
+        LinearLayout button = new LinearLayout(this);
+        button.setGravity(Gravity.CENTER);
+        int fill = Color.rgb(
+                (int) (Color.red(surface) + (Color.red(color) - Color.red(surface)) * 0.2f),
+                (int) (Color.green(surface) + (Color.green(color) - Color.green(surface)) * 0.2f),
+                (int) (Color.blue(surface) + (Color.blue(color) - Color.blue(surface)) * 0.2f));
+        button.setBackground(tile(fill, Color.TRANSPARENT, radii(TILE_RADIUS)));
+        button.setClickable(true);
+        button.setFocusable(true);
+        button.setContentDescription(label);
+        button.addView(icon(iconRes, color), new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView text = text(label, 14, color, true);
+        LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-2, -2);
+        textParams.leftMargin = dp(8);
+        button.addView(text, textParams);
+        button.setOnClickListener(v -> {
+            bounce(v);
+            action.run();
+        });
+        return button;
+    }
+
+    // A callout under a field: a tinted box with an icon and a short line.
+    // setCallout paints it as a warning (yellow, triangle) or as fine
+    // (green, check).
+    LinearLayout callout() {
+        LinearLayout box = new LinearLayout(this);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setPadding(dp(14), dp(12), dp(14), dp(12));
+        box.addView(new ImageView(this), new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView line = text("", 12, text, false);
+        LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(0, -2, 1f);
+        lineParams.leftMargin = dp(12);
+        box.addView(line, lineParams);
+        return box;
+    }
+
+    void setCallout(LinearLayout box, boolean fine, String message) {
+        int fg = fine ? (darkMode ? Color.rgb(129, 201, 149) : Color.rgb(24, 128, 56))
+                : (darkMode ? Color.rgb(253, 214, 99) : Color.rgb(176, 96, 0));
+        int bg = fine ? (darkMode ? Color.rgb(30, 46, 36) : Color.rgb(230, 245, 234))
+                : (darkMode ? Color.rgb(56, 46, 20) : Color.rgb(255, 243, 224));
+        box.setBackground(rounded(bg, Color.TRANSPARENT, 0, TILE_RADIUS));
+        ImageView icon = (ImageView) box.getChildAt(0);
+        icon.setImageResource(fine ? R.drawable.ic_check_circle : R.drawable.ic_warning);
+        icon.setImageTintList(ColorStateList.valueOf(fg));
+        TextView line = (TextView) box.getChildAt(1);
+        line.setText(message);
+        line.setTextColor(fg);
+        box.setContentDescription(message);
+    }
+
+    // A thin line across the page with a section's room above and below:
+    // sets apart what does something else, like removing the profile.
+    View pageDivider() {
+        View line = new View(this);
+        line.setBackgroundColor(border);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(1));
+        params.topMargin = dp(SECTION_GAP);
+        params.bottomMargin = dp(SECTION_GAP - TILE_GAP);
+        line.setLayoutParams(params);
+        return line;
+    }
+
+    LinearLayout.LayoutParams buttonParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(48));
+        params.topMargin = dp(TILE_GAP);
+        return params;
     }
 
     // ---- Text fields ----
@@ -716,11 +847,12 @@ abstract class ThemedActivity extends Activity {
 
     void boxedInput(LinearLayout parent, EditText input, int topMargin) {
         FrameLayout field = new FrameLayout(this);
-        field.setBackground(rounded(surface, border, 1, 10));
+        field.setBackground(rounded(surface, border, 1, TILE_RADIUS));
         input.setPadding(dp(16), 0, dp(16), 0);
         field.addView(input, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(FIELD_HEIGHT));
-        params.topMargin = Math.max(0, topMargin - dp(FLOAT_ROOM));
+        // FLOAT_ROOM for the label comes on top of topMargin, as in fieldParams.
+        params.topMargin = topMargin;
         parent.addView(floating(field, input), params);
     }
 
@@ -741,7 +873,7 @@ abstract class ThemedActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(14), 0, trailingButton != null ? dp(2) : dp(14), 0);
-        row.setBackground(rounded(surface, border, 1, 10));
+        row.setBackground(rounded(surface, border, 1, TILE_RADIUS));
         row.addView(icon(iconRes, secondary), new LinearLayout.LayoutParams(dp(20), dp(20)));
         input.setPadding(0, 0, 0, 0);
         LinearLayout.LayoutParams inputParams = new LinearLayout.LayoutParams(0, -1, 1f);

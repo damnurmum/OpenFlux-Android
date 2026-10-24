@@ -52,7 +52,7 @@ final class HomePage {
         LinearLayout row = new LinearLayout(app);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(app.dp(16), app.dp(14), app.dp(16), app.dp(14));
-        row.setBackground(app.rounded(app.surface, app.border, 1, 11));
+        row.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
         row.setClickable(true);
         row.setFocusable(true);
         row.addView(app.iconBubble(app.profileTransportIcon(p)),
@@ -175,7 +175,7 @@ final class HomePage {
             exitShareCard.setOrientation(LinearLayout.VERTICAL);
             exitShareCard.setGravity(Gravity.CENTER_HORIZONTAL);
             exitShareCard.setPadding(app.dp(16), app.dp(14), app.dp(16), app.dp(14));
-            exitShareCard.setBackground(app.rounded(app.surface, app.border, 1, 11));
+            exitShareCard.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
             exitShareCard.setVisibility(View.GONE);
             LinearLayout.LayoutParams shareParams = app.matchWrap();
             shareParams.topMargin = app.dp(16);

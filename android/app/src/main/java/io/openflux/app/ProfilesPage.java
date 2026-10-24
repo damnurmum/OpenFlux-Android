@@ -58,7 +58,7 @@ final class ProfilesPage {
         ScrollView scroll = new ScrollView(app);
         scroll.setFillViewport(false);
         scroll.setVerticalScrollBarEnabled(true);
-        scroll.setBackground(app.rounded(app.surface, app.border, 1, 12));
+        scroll.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
         scroll.setClipToOutline(true);
         scroll.addView(content);
         int popupWidth = anchor.getWidth();
@@ -96,7 +96,7 @@ final class ProfilesPage {
         LinearLayout menu = new LinearLayout(app);
         menu.setOrientation(LinearLayout.VERTICAL);
         menu.setPadding(app.dp(5), app.dp(5), app.dp(5), app.dp(5));
-        menu.setBackground(app.rounded(app.surface, app.border, 1, 12));
+        menu.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
         PopupWindow popup = new PopupWindow(menu, app.dp(280), -2, true);
         popup.setElevation(app.dp(8));
         popup.setOutsideTouchable(true);
@@ -182,7 +182,7 @@ final class ProfilesPage {
 
         LinearLayout list = new LinearLayout(app);
         list.setOrientation(LinearLayout.VERTICAL);
-        list.setBackground(app.rounded(app.surface, app.border, 1, 12));
+        list.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
         for (int i = 0; i < app.profiles.size(); i++) {
             list.addView(buildProfileListRow(app.profiles.get(i)));
             if (i < app.profiles.size() - 1) app.addDivider(list, 0);

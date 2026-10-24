@@ -70,7 +70,7 @@ final class FlowStyle {
         button.setTypeface(Typeface.DEFAULT_BOLD);
         button.setStateListAnimator(null);
         button.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.rgb(59, 93, 191)),
-                rounded(accent, Color.TRANSPARENT, 9), null));
+                rounded(accent, Color.TRANSPARENT, ThemedActivity.TILE_RADIUS), null));
     }
 
     void secondary(Button button) {
@@ -78,7 +78,7 @@ final class FlowStyle {
         button.setTextSize(14);
         button.setStateListAnimator(null);
         button.setBackground(new RippleDrawable(ColorStateList.valueOf(Color.argb(45, 79, 124, 255)),
-                rounded(surface, border, 9), null));
+                rounded(surface, border, ThemedActivity.TILE_RADIUS), null));
     }
 
     int dp(int value) {

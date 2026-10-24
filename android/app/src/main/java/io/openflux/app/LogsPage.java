@@ -70,7 +70,7 @@ final class LogsPage {
         logScroll = new ScrollView(app);
         logScroll.setFillViewport(true);
         logScroll.setVerticalScrollBarEnabled(false);
-        logScroll.setBackground(app.rounded(app.surface, app.border, 1, 10));
+        logScroll.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
         logScroll.addView(logView, new ScrollView.LayoutParams(-1, -2));
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(-1, 0, 1f);
         logParams.topMargin = app.dp(12);

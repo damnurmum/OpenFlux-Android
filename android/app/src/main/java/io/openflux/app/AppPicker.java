@@ -65,11 +65,9 @@ final class AppPicker {
         LinearLayout header = new LinearLayout(app);
         header.setOrientation(LinearLayout.VERTICAL);
 
-        TextView hint = app.text(
+        header.addView(app.introText(
                 "Выберите, какие приложения используют туннель. По умолчанию - все приложения, кроме OpenFlux. "
-                        + "Действует только в режиме туннеля - в режиме прокси приложения подключаются к SOCKS5 сами.",
-                12, app.secondary, false);
-        header.addView(hint, app.matchWrap());
+                        + "Действует только в режиме туннеля - в режиме прокси приложения подключаются к SOCKS5 сами."));
 
         int generation = ++appsSettingsGeneration;
         List<AppEntry> cachedApps = getInstalledAppsCache(showSystemApps);
@@ -81,7 +79,8 @@ final class AppPicker {
 
         LinearLayout searchRow = new LinearLayout(app);
         searchRow.setGravity(Gravity.CENTER_VERTICAL);
-        searchRow.setBackground(app.rounded(app.surface, app.border, 1, 10));
+        // A pill, like the settings search.
+        searchRow.setBackground(app.rounded(app.surface, app.border, 1, 24));
         EditText searchInput = app.settingInput("Поиск по названию или пакету", "",
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         searchInput.setSingleLine(true);
@@ -220,9 +219,7 @@ final class AppPicker {
                     updateSearchState.run();
                 });
 
-        LinearLayout.LayoutParams modeGroupParams = app.matchWrap();
-        modeGroupParams.topMargin = app.dp(12);
-        header.addView(filterChoice, modeGroupParams);
+        header.addView(filterChoice, app.tileParams());
 
         Switch systemAppsSwitch = app.settingSwitch(R.drawable.ic_apps,
                 "Показать системные приложения",
@@ -230,22 +227,19 @@ final class AppPicker {
         View systemAppsRow = (View) systemAppsSwitch.getTag();
         systemAppsHolder[0] = systemAppsRow;
         systemAppsRow.setVisibility(AppFilter.MODE_OFF.equals(app.settingsPage.editorAppFilterMode) ? View.GONE : View.VISIBLE);
+        // The app list is a block of its own under the filter choice.
         LinearLayout.LayoutParams systemAppsParams = app.matchWrap();
-        systemAppsParams.topMargin = app.dp(12);
+        systemAppsParams.topMargin = app.dp(ThemedActivity.SECTION_GAP);
         header.addView(systemAppsRow, systemAppsParams);
 
         LinearLayout.LayoutParams searchParams = new LinearLayout.LayoutParams(-1, app.dp(48));
-        searchParams.topMargin = app.dp(12);
+        searchParams.topMargin = app.dp(ThemedActivity.TILE_GAP);
         header.addView(searchRow, searchParams);
-        LinearLayout.LayoutParams emptyParams = app.matchWrap();
-        emptyParams.topMargin = app.dp(12);
-        header.addView(emptyResults, emptyParams);
+        header.addView(emptyResults, app.tileParams());
 
         TextView loadStatus = app.text("", 12, app.secondary, false);
         loadStatus.setVisibility(View.GONE);
-        LinearLayout.LayoutParams statusParams = app.matchWrap();
-        statusParams.topMargin = app.dp(12);
-        header.addView(loadStatus, statusParams);
+        header.addView(loadStatus, app.tileParams());
 
         Runnable[] requestApps = new Runnable[1];
         int[] loadRequest = {0};
@@ -391,12 +385,11 @@ final class AppPicker {
         return row;
     }
 
-    // Paints an app row for its place in the list (the group's ends are
-    // rounder, as in choiceList) and whether it is picked.
+    // Paints an app row as a separate tile, like choiceList's, and whether
+    // it is picked.
     private void paintAppRow(View row, AppRowHolder holder, int index, int count, boolean on) {
-        float top = app.dp(index == 0 ? 20 : 6), bottom = app.dp(index == count - 1 ? 20 : 6);
         row.setBackground(app.tile(on ? app.tonal(0.18f) : app.surface, on ? app.tonal(0.45f) : app.border,
-                new float[]{top, top, top, top, bottom, bottom, bottom, bottom}));
+                app.radii(ThemedActivity.TILE_RADIUS)));
         holder.label.setTextColor(on ? app.accent : app.text);
         GradientDrawable dot = new GradientDrawable();
         dot.setShape(GradientDrawable.OVAL);
@@ -406,7 +399,7 @@ final class AppPicker {
         holder.mark.setImageResource(on ? R.drawable.ic_check : 0);
         holder.mark.setImageTintList(ColorStateList.valueOf(Color.WHITE));
         RecyclerView.LayoutParams params = (RecyclerView.LayoutParams) row.getLayoutParams();
-        int gap = index == 0 ? app.dp(12) : app.dp(2);
+        int gap = app.dp(ThemedActivity.TILE_GAP);
         if (params != null && params.topMargin != gap) {
             params.topMargin = gap;
             row.setLayoutParams(params);
