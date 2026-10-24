@@ -7,18 +7,14 @@ import android.net.Uri;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.graphics.Color;
-import android.graphics.Insets;
 import android.content.res.ColorStateList;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
-import android.os.Build;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowInsets;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -47,12 +43,15 @@ import java.util.function.Consumer;
 
 import io.openflux.bridge.mobile.Mobile;
 
-// Installs a new exit channel on a VPS using the upstream mobile provision API.
-// SSH credentials stay in this Activity; only the accepted host fingerprint
-// and the finished OpenFlux profile are persisted.
-public final class NodeWizardActivity extends Activity {
-    static final String EXTRA_NAV_PAGE = "io.openflux.app.NODE_WIZARD_NAV_PAGE";
-    private static final int SSH_KEY_REQUEST = 3101;
+// Profiles → «Установить ноду на VPS»: installs a new exit channel on a VPS
+// using the upstream mobile provision API. A page of MainActivity, like the
+// profile editor; it lives from openNodeWizard to closeNodeWizard and keeps
+// its own views, so the SSH session and the typed fields survive page
+// rebuilds. SSH credentials stay in memory; only the accepted host
+// fingerprint and the finished OpenFlux profile are persisted.
+final class NodeWizard {
+    static final int SSH_KEY_REQUEST = 3101;
+    private final MainActivity app;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable captchaPoll = new Runnable() {
@@ -61,7 +60,7 @@ public final class NodeWizardActivity extends Activity {
             boolean pending = CaptchaActivity.pending();
             if (pending && !captchaShown) {
                 captchaShown = true;
-                startActivity(new android.content.Intent(NodeWizardActivity.this, CaptchaActivity.class));
+                app.startActivity(new Intent(app, CaptchaActivity.class));
             } else if (!pending) {
                 captchaShown = false;
             }
@@ -96,94 +95,56 @@ public final class NodeWizardActivity extends Activity {
     private boolean selectedAutoUpdate;
     private long savedProfileId;
 
-    @Override protected void onCreate(Bundle state) {
-        super.onCreate(state);
-        secureSettings = new SecureSettings(this);
-        ui = new FlowStyle(this);
-        ui.applyWindow();
+    NodeWizard(MainActivity app) {
+        this.app = app;
+        secureSettings = new SecureSettings(app);
+        ui = new FlowStyle(app);
         buildPage();
     }
 
-    private void buildPage() {
-        FrameLayout root = new FrameLayout(this);
-        root.setBackgroundColor(ui.background);
-        LinearLayout shell = new LinearLayout(this);
-        shell.setOrientation(LinearLayout.VERTICAL);
-        shell.setPadding(dp(20), dp(16), dp(20), 0);
-        root.addView(shell, new FrameLayout.LayoutParams(-1, -1));
-        shell.addView(buildAppHeader(), new LinearLayout.LayoutParams(-1, dp(54)));
-
-        scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setClipToPadding(false);
-        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, 0, 1f);
-        scrollParams.topMargin = dp(16);
-        shell.addView(scroll, scrollParams);
-        LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(page);
-
-        View scrim = new View(this);
-        scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{Color.TRANSPARENT, ui.background}));
-        root.addView(scrim, new FrameLayout.LayoutParams(-1, dp(126), Gravity.BOTTOM));
-        LinearLayout nav = buildBottomNav();
-        FrameLayout.LayoutParams navParams = new FrameLayout.LayoutParams(-1, dp(68), Gravity.BOTTOM);
-        navParams.leftMargin = dp(12);
-        navParams.rightMargin = dp(12);
-        navParams.bottomMargin = dp(10);
-        root.addView(nav, navParams);
-        root.setOnApplyWindowInsetsListener((view, insets) -> {
-            int top, bottom, keyboard;
-            if (Build.VERSION.SDK_INT >= 30) {
-                Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
-                top = bars.top;
-                bottom = bars.bottom;
-                keyboard = insets.getInsets(WindowInsets.Type.ime()).bottom;
-            } else {
-                top = insets.getSystemWindowInsetTop();
-                bottom = insets.getSystemWindowInsetBottom();
-                keyboard = 0;
-            }
-            boolean keyboardOpen = keyboard > bottom + dp(50);
-            shell.setPadding(dp(20), dp(16) + top, dp(20), keyboardOpen ? keyboard : 0);
-            nav.setVisibility(keyboardOpen ? View.GONE : View.VISIBLE);
-            scrim.setVisibility(keyboardOpen ? View.GONE : View.VISIBLE);
-            FrameLayout.LayoutParams navLayout = (FrameLayout.LayoutParams) nav.getLayoutParams();
-            navLayout.bottomMargin = dp(10) + bottom;
-            nav.setLayoutParams(navLayout);
-            FrameLayout.LayoutParams scrimLayout = (FrameLayout.LayoutParams) scrim.getLayoutParams();
-            scrimLayout.height = dp(126) + bottom;
-            scrim.setLayoutParams(scrimLayout);
-            // On the page, not the scroll: a ScrollView counts its own padding
-            // as visible area, so it would refuse a short drag that starts on
-            // a field or a card.
-            page.setPadding(0, 0, 0, dp(68 + 10 + 16) + bottom);
-            return insets;
+    // The page title with its back arrow, as the profile editor has.
+    View header() {
+        LinearLayout header = new LinearLayout(app);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        ImageButton back = app.iconButton(R.drawable.ic_arrow_back, "Назад к профилям");
+        back.setOnClickListener(v -> {
+            app.bounce(v);
+            leave();
         });
-        setContentView(root);
+        LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(app.dp(44), app.dp(44));
+        backParams.rightMargin = app.dp(6);
+        header.addView(back, backParams);
+        header.addView(app.text("Установка ноды на VPS", 22, app.text, true),
+                new LinearLayout.LayoutParams(0, -2, 1f));
+        return header;
+    }
 
-        LinearLayout heading = new LinearLayout(this);
-        heading.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        ImageButton back = new ImageButton(this);
-        back.setImageResource(R.drawable.ic_arrow_back);
-        back.setImageTintList(ColorStateList.valueOf(ui.secondary));
-        back.setBackground(ui.rounded(ui.background, Color.TRANSPARENT, 10));
-        back.setContentDescription("Назад к профилям");
-        back.setOnClickListener(v -> finish());
-        LinearLayout.LayoutParams backParams = new LinearLayout.LayoutParams(dp(42), dp(42));
-        backParams.rightMargin = dp(12);
-        heading.addView(back, backParams);
-        TextView title = new TextView(this);
-        title.setText("Создать ноду на VPS");
-        title.setTextSize(22);
-        ui.heading(title);
-        heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1f));
-        page.addView(heading);
-        intro = addText(page, "Сначала подключитесь к серверу по SSH. Приложение покажет план изменений перед установкой.", 13, false);
-        spaceAbove(intro, 4);
+    // The scrolling body, built once; taken from the old page on a rebuild.
+    View content() {
+        if (scroll.getParent() instanceof ViewGroup) ((ViewGroup) scroll.getParent()).removeView(scroll);
+        return scroll;
+    }
+
+    // A running SSH step must finish first: leaving would cut it off.
+    boolean busy() {
+        if (busy) showWarning("Дождитесь завершения операции");
+        return busy;
+    }
+
+    // Back, the nav bar and the arrow all end up here.
+    void leave() {
+        if (!busy()) app.closeNodeWizard(false);
+    }
+
+    private void buildPage() {
+        LinearLayout page = new LinearLayout(app);
+        page.setOrientation(LinearLayout.VERTICAL);
+        scroll = (ScrollView) app.wrapScroll(page);
+        // The pinned buttons are inside the page here, so only the nav pill
+        // needs clearing (wrapScroll leaves room for it).
+        intro = addText(page, "Сначала подключитесь к серверу по SSH. Приложение покажет план изменений перед установкой.", 12, false);
         connectedCard = buildConnectedCard(page);
-        sshSection = new LinearLayout(this);
+        sshSection = new LinearLayout(app);
         sshSection.setOrientation(LinearLayout.VERTICAL);
         page.addView(sshSection, new LinearLayout.LayoutParams(-1, -2));
         sectionLabel(sshSection, "SSH ПОДКЛЮЧЕНИЕ");
@@ -194,7 +155,7 @@ public final class NodeWizardActivity extends Activity {
         sshPortInput = groupedField(addressGroup, "Порт SSH", "22", InputType.TYPE_CLASS_NUMBER);
         sshPortInput.setText("22");
         sectionLabel(sshSection, "СПОСОБ ВХОДА");
-        LinearLayout authChoices = new LinearLayout(this);
+        LinearLayout authChoices = new LinearLayout(app);
         authChoices.setOrientation(LinearLayout.VERTICAL);
         sshSection.addView(authChoices, new LinearLayout.LayoutParams(-1, -2));
         authOption(authChoices, 0, "Пароль", "Войти с паролем пользователя SSH", R.drawable.ic_lock);
@@ -223,7 +184,7 @@ public final class NodeWizardActivity extends Activity {
         updateAuthMode();
         connectButton = button(sshSection, "Проверить сервер", v -> connect(null, false));
 
-        configSection = new LinearLayout(this);
+        configSection = new LinearLayout(app);
         configSection.setOrientation(LinearLayout.VERTICAL);
         page.addView(configSection, new LinearLayout.LayoutParams(-1, -2));
         sectionLabel(configSection, "ТРАНСПОРТЫ КАНАЛА");
@@ -248,10 +209,10 @@ public final class NodeWizardActivity extends Activity {
         sudoInput = field(configSection, "Пароль sudo (если отличается от SSH)", "",
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         planButton = button(configSection, "Показать план установки", v -> plan());
-        planCard = new LinearLayout(this);
+        planCard = new LinearLayout(app);
         planCard.setOrientation(LinearLayout.VERTICAL);
         planCard.setPadding(dp(16), dp(16), dp(16), dp(16));
-        planCard.setBackground(ui.rounded(ui.surface, ui.border, 12));
+        planCard.setBackground(ui.rounded(ui.surface, ui.border, ThemedActivity.TILE_RADIUS));
         LinearLayout.LayoutParams planCardParams = new LinearLayout.LayoutParams(-1, -2);
         planCardParams.topMargin = dp(10);
         planCardParams.bottomMargin = dp(8);
@@ -259,7 +220,7 @@ public final class NodeWizardActivity extends Activity {
         TextView planTitle = addText(planCard, "План установки", 16, true);
         planTitle.setTextColor(ui.text);
         planInfo = addText(planCard, "", 13, false);
-        planActions = new LinearLayout(this);
+        planActions = new LinearLayout(app);
         planActions.setOrientation(LinearLayout.VERTICAL);
         planCard.addView(planActions);
         changeButton = button(configSection, "Изменить параметры", v -> editPlan());
@@ -273,23 +234,23 @@ public final class NodeWizardActivity extends Activity {
     }
 
     private LinearLayout buildConnectedCard(LinearLayout parent) {
-        LinearLayout card = new LinearLayout(this);
+        LinearLayout card = new LinearLayout(app);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(16), dp(16), dp(16), dp(16));
-        card.setBackground(ui.rounded(ui.surface, ui.border, 12));
+        card.setBackground(ui.rounded(ui.surface, ui.border, ThemedActivity.TILE_RADIUS));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2);
         cardParams.topMargin = dp(8);
         cardParams.bottomMargin = dp(8);
         parent.addView(card, cardParams);
 
-        LinearLayout heading = new LinearLayout(this);
+        LinearLayout heading = new LinearLayout(app);
         heading.setGravity(Gravity.CENTER_VERTICAL);
-        FrameLayout bubble = new FrameLayout(this);
+        FrameLayout bubble = new FrameLayout(app);
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
         circle.setColor(Color.argb(45, 47, 178, 108));
         bubble.setBackground(circle);
-        ImageView check = new ImageView(this);
+        ImageView check = new ImageView(app);
         check.setImageResource(R.drawable.ic_check);
         check.setImageTintList(ColorStateList.valueOf(Color.rgb(56, 190, 115)));
         bubble.addView(check, new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER));
@@ -297,14 +258,14 @@ public final class NodeWizardActivity extends Activity {
         bubbleParams.rightMargin = dp(12);
         heading.addView(bubble, bubbleParams);
 
-        LinearLayout labels = new LinearLayout(this);
+        LinearLayout labels = new LinearLayout(app);
         labels.setOrientation(LinearLayout.VERTICAL);
-        TextView title = new TextView(this);
+        TextView title = new TextView(app);
         title.setText("Сервер проверен");
         title.setTextSize(16);
         ui.heading(title);
         labels.addView(title);
-        connectedHost = new TextView(this);
+        connectedHost = new TextView(app);
         connectedHost.setTextSize(12);
         ui.body(connectedHost);
         LinearLayout.LayoutParams hostParams = new LinearLayout.LayoutParams(-1, -2);
@@ -313,13 +274,13 @@ public final class NodeWizardActivity extends Activity {
         heading.addView(labels, new LinearLayout.LayoutParams(0, -2, 1f));
         card.addView(heading);
 
-        View divider = new View(this);
+        View divider = new View(app);
         divider.setBackgroundColor(ui.border);
         LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(-1, dp(1));
         dividerParams.topMargin = dp(14);
         dividerParams.bottomMargin = dp(12);
         card.addView(divider, dividerParams);
-        serverInfo = new TextView(this);
+        serverInfo = new TextView(app);
         serverInfo.setTextSize(12);
         ui.body(serverInfo);
         card.addView(serverInfo);
@@ -329,93 +290,12 @@ public final class NodeWizardActivity extends Activity {
         return card;
     }
 
-    private View buildAppHeader() {
-        LinearLayout header = new LinearLayout(this);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        ImageView logo = new ImageView(this);
-        logo.setContentDescription("Логотип OpenFlux");
-        logo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        logo.setImageResource(R.drawable.ic_openflux_foreground);
-        logo.setBackground(ui.rounded(ui.accent, Color.TRANSPARENT, 10));
-        logo.setClipToOutline(true);
-        header.addView(logo, new LinearLayout.LayoutParams(dp(44), dp(44)));
 
-        LinearLayout titles = new LinearLayout(this);
-        titles.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams titlesParams = new LinearLayout.LayoutParams(0, -2, 1f);
-        titlesParams.leftMargin = dp(12);
-        TextView name = new TextView(this);
-        name.setText("OpenFlux");
-        name.setTextSize(21);
-        ui.heading(name);
-        titles.addView(name);
-        TextView subtitle = new TextView(this);
-        subtitle.setText("Зашифрованный туннель");
-        subtitle.setTextSize(12);
-        ui.body(subtitle);
-        titles.addView(subtitle);
-        header.addView(titles, titlesParams);
-
-        TextView version = new TextView(this);
-        try {
-            version.setText(getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
-        } catch (Exception ignored) {
-            version.setText("—");
-        }
-        version.setTextSize(10);
-        version.setTextColor(ui.accent);
-        version.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        version.setGravity(Gravity.CENTER);
-        version.setPadding(dp(9), dp(5), dp(9), dp(5));
-        version.setBackground(ui.rounded(ui.selectedSurface, Color.TRANSPARENT, 12));
-        header.addView(version);
-        return header;
-    }
-
-    private LinearLayout buildBottomNav() {
-        LinearLayout nav = new LinearLayout(this);
-        nav.setGravity(Gravity.CENTER);
-        nav.setPadding(dp(4), dp(6), dp(4), dp(6));
-        nav.setBackground(ui.rounded(ui.surface, ui.border, 34));
-        nav.setElevation(dp(4));
-        nav.addView(navItem(R.drawable.ic_home, "Главная", 0),
-                new LinearLayout.LayoutParams(0, -1, 1f));
-        nav.addView(navItem(R.drawable.ic_public, "Профили", 1),
-                new LinearLayout.LayoutParams(0, -1, 1f));
-        nav.addView(navItem(R.drawable.ic_terminal, "Логи", 2),
-                new LinearLayout.LayoutParams(0, -1, 1f));
-        nav.addView(navItem(R.drawable.ic_settings, "Настройки", 3),
-                new LinearLayout.LayoutParams(0, -1, 1f));
-        return nav;
-    }
-
-    private View navItem(int iconRes, String label, int page) {
-        FrameLayout item = new FrameLayout(this);
-        item.setContentDescription(label);
-        item.setClickable(true);
-        item.setFocusable(true);
-        FrameLayout iconWrap = new FrameLayout(this);
-        if (page == 1) iconWrap.setBackground(ui.rounded(ui.accent, Color.TRANSPARENT, 18));
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(iconRes);
-        icon.setImageTintList(ColorStateList.valueOf(page == 1 ? Color.WHITE : ui.secondary));
-        iconWrap.addView(icon, new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER));
-        item.addView(iconWrap, new FrameLayout.LayoutParams(dp(48), dp(40), Gravity.CENTER));
-        item.setOnClickListener(v -> {
-            if (busy) {
-                showWarning("Дождитесь завершения операции");
-                return;
-            }
-            setResult(RESULT_CANCELED, new Intent().putExtra(EXTRA_NAV_PAGE, page));
-            finish();
-        });
-        return item;
-    }
 
     private LinearLayout credentialGroup(LinearLayout parent) {
-        LinearLayout group = new LinearLayout(this);
+        LinearLayout group = new LinearLayout(app);
         group.setOrientation(LinearLayout.VERTICAL);
-        group.setBackground(ui.rounded(ui.surface, ui.border, 12));
+        group.setBackground(ui.rounded(ui.surface, ui.border, ThemedActivity.TILE_RADIUS));
         group.setClipToOutline(true);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.bottomMargin = dp(8);
@@ -424,7 +304,7 @@ public final class NodeWizardActivity extends Activity {
     }
 
     private View groupDivider(LinearLayout group) {
-        View divider = new View(this);
+        View divider = new View(app);
         divider.setBackgroundColor(ui.border);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(1));
         params.leftMargin = dp(16);
@@ -433,38 +313,38 @@ public final class NodeWizardActivity extends Activity {
     }
 
     private void authOption(LinearLayout parent, int index, String title, String detail, int iconRes) {
-        LinearLayout row = new LinearLayout(this);
+        LinearLayout row = new LinearLayout(app);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(14), dp(12), dp(16), dp(12));
         row.setMinimumHeight(dp(70));
         row.setClickable(true);
         row.setFocusable(true);
-        FrameLayout bubble = new FrameLayout(this);
+        FrameLayout bubble = new FrameLayout(app);
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
         circle.setColor(Color.argb(45, 79, 124, 255));
         bubble.setBackground(circle);
-        ImageView icon = new ImageView(this);
+        ImageView icon = new ImageView(app);
         icon.setImageResource(iconRes);
         icon.setImageTintList(ColorStateList.valueOf(ui.accent));
         bubble.addView(icon, new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER));
         LinearLayout.LayoutParams bubbleParams = new LinearLayout.LayoutParams(dp(40), dp(40));
         bubbleParams.rightMargin = dp(14);
         row.addView(bubble, bubbleParams);
-        LinearLayout copy = new LinearLayout(this);
+        LinearLayout copy = new LinearLayout(app);
         copy.setOrientation(LinearLayout.VERTICAL);
-        TextView name = new TextView(this);
+        TextView name = new TextView(app);
         name.setText(title);
         name.setTextSize(15);
         name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         copy.addView(name);
-        TextView description = new TextView(this);
+        TextView description = new TextView(app);
         description.setText(detail);
         description.setTextSize(12);
         ui.body(description);
         copy.addView(description);
         row.addView(copy, new LinearLayout.LayoutParams(0, -2, 1f));
-        ImageView marker = new ImageView(this);
+        ImageView marker = new ImageView(app);
         marker.setImageResource(R.drawable.ic_check);
         marker.setImageTintList(ColorStateList.valueOf(Color.WHITE));
         marker.setPadding(dp(3), dp(3), dp(3), dp(3));
@@ -483,18 +363,18 @@ public final class NodeWizardActivity extends Activity {
             updateControls();
         });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        if (index > 0) params.topMargin = dp(2);
+        if (index > 0) params.topMargin = dp(ThemedActivity.TILE_GAP);
         parent.addView(row, params);
     }
 
     private void updateAuthMode() {
         for (int i = 0; i < authRows.length; i++) {
             boolean selected = usePrivateKey == (i == 1);
-            float top = dp(i == 0 ? 20 : 6), bottom = dp(i == 1 ? 20 : 6);
+            float r = dp(ThemedActivity.TILE_RADIUS);
             GradientDrawable shape = new GradientDrawable();
             shape.setColor(selected ? tonal(0.18f) : ui.surface);
             shape.setStroke(dp(1), selected ? tonal(0.45f) : ui.border);
-            shape.setCornerRadii(new float[]{top, top, top, top, bottom, bottom, bottom, bottom});
+            shape.setCornerRadius(r);
             authRows[i].setBackground(new RippleDrawable(
                     ColorStateList.valueOf(Color.argb(40, 79, 124, 255)), shape, null));
             authRows[i].setContentDescription((i == 0 ? "Пароль" : "SSH-ключ")
@@ -518,16 +398,16 @@ public final class NodeWizardActivity extends Activity {
 
     private EditText groupedField(LinearLayout group, String label, String hint, int inputType) {
         boolean multiline = (inputType & InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0;
-        LinearLayout row = new LinearLayout(this);
+        LinearLayout row = new LinearLayout(app);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(16), dp(8), dp(16), dp(8));
         row.setMinimumHeight(dp(multiline ? 104 : 64));
-        TextView caption = new TextView(this);
+        TextView caption = new TextView(app);
         caption.setText(label);
         caption.setTextSize(11);
         caption.setTextColor(ui.secondary);
         row.addView(caption);
-        EditText input = new EditText(this);
+        EditText input = new EditText(app);
         input.setInputType(inputType);
         input.setSingleLine(!multiline);
         input.setHint(hint);
@@ -543,20 +423,17 @@ public final class NodeWizardActivity extends Activity {
         return input;
     }
 
+    // The app's section title; the tiles after it keep their own gaps.
     private void sectionLabel(LinearLayout parent, String title) {
-        TextView label = new TextView(this);
-        label.setText(title);
-        label.setTextSize(12);
-        label.setTextColor(ui.secondary);
-        label.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        TextView label = app.label(title);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.topMargin = dp(20);
-        params.bottomMargin = dp(8);
+        params.topMargin = dp(ThemedActivity.SECTION_GAP - 8);
+        params.bottomMargin = dp(ThemedActivity.TILE_GAP);
         parent.addView(label, params);
     }
 
     private TextView addText(LinearLayout parent, String value, int size, boolean bold) {
-        TextView view = new TextView(this);
+        TextView view = new TextView(app);
         view.setText(value);
         view.setTextSize(size);
         view.setTextColor(bold ? ui.text : ui.secondary);
@@ -575,13 +452,13 @@ public final class NodeWizardActivity extends Activity {
 
     private EditText field(LinearLayout parent, String label, String hint, int inputType) {
         boolean multiline = (inputType & InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0;
-        FrameLayout wrapper = new FrameLayout(this);
-        FrameLayout box = new FrameLayout(this);
-        box.setBackground(ui.rounded(ui.surface, ui.border, 10));
+        FrameLayout wrapper = new FrameLayout(app);
+        FrameLayout box = new FrameLayout(app);
+        box.setBackground(ui.rounded(ui.surface, ui.border, ThemedActivity.TILE_RADIUS));
         FrameLayout.LayoutParams boxParams = new FrameLayout.LayoutParams(-1, -1);
         boxParams.topMargin = dp(8);
         wrapper.addView(box, boxParams);
-        EditText input = new EditText(this);
+        EditText input = new EditText(app);
         input.setSingleLine(!multiline);
         input.setInputType(inputType);
         input.setHint(hint);
@@ -593,7 +470,7 @@ public final class NodeWizardActivity extends Activity {
         input.setGravity(multiline ? android.view.Gravity.TOP | android.view.Gravity.START
                 : android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.START);
         box.addView(input, new FrameLayout.LayoutParams(-1, -1));
-        TextView caption = new TextView(this);
+        TextView caption = new TextView(app);
         caption.setText(label);
         caption.setTextSize(11);
         caption.setTextColor(ui.secondary);
@@ -616,50 +493,52 @@ public final class NodeWizardActivity extends Activity {
         captionParams.leftMargin = dp(14);
         wrapper.addView(caption, captionParams);
         input.setOnFocusChangeListener((view, focused) -> {
-            box.setBackground(ui.rounded(ui.surface, focused ? ui.accent : ui.border, 10));
+            box.setBackground(ui.rounded(ui.surface, focused ? ui.accent : ui.border, ThemedActivity.TILE_RADIUS));
             caption.setTextColor(focused ? ui.accent : ui.secondary);
         });
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(multiline ? 112 : 68));
-        params.topMargin = dp(8);
-        params.bottomMargin = dp(6);
+        // The tile or text above already leaves TILE_GAP; the box keeps 8dp
+        // more above it for the caption on its border, as fieldParams does.
+        params.topMargin = 0;
+        params.bottomMargin = dp(ThemedActivity.TILE_GAP);
         parent.addView(wrapper, params);
         input.setTag(wrapper);
         return input;
     }
 
     private CheckBox choiceTile(LinearLayout parent, String title, String detail, int iconRes) {
-        LinearLayout row = new LinearLayout(this);
+        LinearLayout row = new LinearLayout(app);
         row.setGravity(android.view.Gravity.CENTER_VERTICAL);
         row.setPadding(dp(14), dp(12), dp(16), dp(12));
         row.setMinimumHeight(dp(70));
         row.setClickable(true);
         row.setFocusable(true);
-        FrameLayout bubble = new FrameLayout(this);
+        FrameLayout bubble = new FrameLayout(app);
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
         circle.setColor(Color.argb(45, 79, 124, 255));
         bubble.setBackground(circle);
-        ImageView icon = new ImageView(this);
+        ImageView icon = new ImageView(app);
         icon.setImageResource(iconRes);
         icon.setImageTintList(ColorStateList.valueOf(ui.accent));
         bubble.addView(icon, new FrameLayout.LayoutParams(dp(22), dp(22), android.view.Gravity.CENTER));
         row.addView(bubble, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        LinearLayout copy = new LinearLayout(this);
+        LinearLayout copy = new LinearLayout(app);
         copy.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(0, -2, 1f);
         copyParams.leftMargin = dp(14);
-        TextView name = new TextView(this);
+        TextView name = new TextView(app);
         name.setText(title);
         name.setTextSize(15);
         name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         copy.addView(name);
-        TextView description = new TextView(this);
+        TextView description = new TextView(app);
         description.setText(detail);
         description.setTextSize(12);
         ui.body(description);
         copy.addView(description);
         row.addView(copy, copyParams);
-        ImageView marker = new ImageView(this);
+        ImageView marker = new ImageView(app);
         marker.setImageResource(R.drawable.ic_check);
         marker.setImageTintList(ColorStateList.valueOf(Color.WHITE));
         marker.setPadding(dp(3), dp(3), dp(3), dp(3));
@@ -668,14 +547,14 @@ public final class NodeWizardActivity extends Activity {
         dot.setColor(ui.accent);
         marker.setBackground(dot);
         row.addView(marker, new LinearLayout.LayoutParams(dp(24), dp(24)));
-        CheckBox check = new CheckBox(this);
+        CheckBox check = new CheckBox(app);
         check.setVisibility(View.GONE);
         check.setTag(row);
         row.addView(check, new LinearLayout.LayoutParams(0, 0));
         Runnable paint = () -> {
             boolean selected = check.isChecked();
             row.setBackground(ui.rounded(selected ? ui.selectedSurface : ui.surface,
-                    selected ? ui.accent : ui.border, 20));
+                    selected ? ui.accent : ui.border, ThemedActivity.TILE_RADIUS));
             name.setTextColor(selected ? ui.accent : ui.text);
             marker.setVisibility(selected ? View.VISIBLE : View.INVISIBLE);
             row.setContentDescription(title + (selected ? ", выбрано" : ", не выбрано"));
@@ -686,13 +565,13 @@ public final class NodeWizardActivity extends Activity {
         row.setOnClickListener(v -> { if (check.isEnabled()) check.setChecked(!check.isChecked()); });
         paint.run();
         LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
-        rowParams.bottomMargin = dp(4);
+        rowParams.bottomMargin = dp(ThemedActivity.TILE_GAP);
         parent.addView(row, rowParams);
         return check;
     }
 
     private Button button(LinearLayout parent, String title, View.OnClickListener listener) {
-        Button button = new Button(this);
+        Button button = new Button(app);
         button.setText(title);
         button.setAllCaps(false);
         ui.primary(button);
@@ -757,7 +636,7 @@ public final class NodeWizardActivity extends Activity {
                 try { result.put("ok", false).put("error", e.getMessage()); } catch (Exception ignored) { }
             }
             JSONObject answer = result;
-            runOnUiThread(() -> {
+            app.runOnUiThread(() -> {
                 if (destroyed) return;
                 dismissProgress();
                 busy = false;
@@ -797,13 +676,13 @@ public final class NodeWizardActivity extends Activity {
     }
 
     private void showProgress(String label) {
-        LinearLayout content = new LinearLayout(this);
+        LinearLayout content = new LinearLayout(app);
         content.setGravity(Gravity.CENTER_VERTICAL);
         content.setPadding(dp(24), dp(8), dp(24), dp(18));
-        ProgressBar spinner = new ProgressBar(this);
+        ProgressBar spinner = new ProgressBar(app);
         spinner.setIndeterminateTintList(ColorStateList.valueOf(ui.accent));
         content.addView(spinner, new LinearLayout.LayoutParams(dp(32), dp(32)));
-        TextView text = new TextView(this);
+        TextView text = new TextView(app);
         text.setText(label);
         text.setTextSize(14);
         text.setTextColor(ui.text);
@@ -834,18 +713,18 @@ public final class NodeWizardActivity extends Activity {
     private void showPlanActions(JSONArray actions) {
         planActions.removeAllViews();
         for (int i = 0; actions != null && i < actions.length(); i++) {
-            LinearLayout row = new LinearLayout(this);
+            LinearLayout row = new LinearLayout(app);
             row.setOrientation(LinearLayout.HORIZONTAL);
             LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
             rowParams.topMargin = dp(i == 0 ? 8 : 12);
             planActions.addView(row, rowParams);
-            TextView number = new TextView(this);
+            TextView number = new TextView(app);
             number.setText(String.format(Locale.ROOT, "%02d", i + 1));
             number.setTextSize(12);
             number.setTextColor(ui.accent);
             number.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             row.addView(number, new LinearLayout.LayoutParams(dp(32), -2));
-            TextView action = new TextView(this);
+            TextView action = new TextView(app);
             action.setText(actions.optString(i));
             action.setTextSize(13);
             action.setTextColor(ui.secondary);
@@ -867,15 +746,15 @@ public final class NodeWizardActivity extends Activity {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
-        startActivityForResult(intent, SSH_KEY_REQUEST);
+        app.startActivityForResult(intent, SSH_KEY_REQUEST);
     }
 
-    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != SSH_KEY_REQUEST || resultCode != RESULT_OK || data == null) return;
+    // The SSH key file picked in pickPrivateKey; MainActivity forwards it.
+    void onKeyPicked(int resultCode, Intent data) {
+        if (resultCode != Activity.RESULT_OK || data == null) return;
         Uri uri = data.getData();
         if (uri == null) return;
-        try (InputStream stream = getContentResolver().openInputStream(uri)) {
+        try (InputStream stream = app.getContentResolver().openInputStream(uri)) {
             if (stream == null) throw new IllegalArgumentException("Не удалось открыть файл");
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             byte[] chunk = new byte[4096];
@@ -1193,7 +1072,7 @@ public final class NodeWizardActivity extends Activity {
                     .setMessage("Профиль сохранён. Ссылку подключения можно скопировать для другого устройства; в ней находится ключ канала.")
                     .setNegativeButton("Готово", (dialog, which) -> complete())
                     .setPositiveButton("Копировать ссылку", (dialog, which) -> {
-                        ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+                        ClipboardManager clipboard = app.getSystemService(ClipboardManager.class);
                         if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("OpenFlux", link));
                         showSuccess("Ссылка скопирована", "Ссылку можно отправить на другое устройство.", this::complete);
                     })
@@ -1242,8 +1121,7 @@ public final class NodeWizardActivity extends Activity {
     }
 
     private void complete() {
-        setResult(RESULT_OK);
-        finish();
+        app.closeNodeWizard(true);
     }
 
     private void confirmRemove() {
@@ -1257,13 +1135,15 @@ public final class NodeWizardActivity extends Activity {
                         () -> response(Mobile.nodeRemove(channelId, sudo)), answer -> {
                             if (!ok(answer)) { showError(answer); return; }
                             removeSavedProfile();
-                            showSuccess("Канал удалён", "Созданный канал удалён с VPS.", this::finish);
+                            showSuccess("Канал удалён", "Созданный канал удалён с VPS.", () -> app.closeNodeWizard(true));
                         });
                 })
                 .show();
     }
 
-    @Override protected void onDestroy() {
+    // Ends the session: stops a check, closes SSH. MainActivity calls it
+    // when the page closes or the app goes away.
+    void dispose() {
         destroyed = true;
         dismissProgress();
         verifying = false;
@@ -1271,10 +1151,9 @@ public final class NodeWizardActivity extends Activity {
         Mobile.nodeCancelVerify();
         worker.execute(Mobile::nodeDisconnect);
         worker.shutdown();
-        super.onDestroy();
     }
 
     private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+        return app.dp(value);
     }
 }

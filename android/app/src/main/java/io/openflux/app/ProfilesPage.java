@@ -126,6 +126,13 @@ final class ProfilesPage {
 
     View buildProfilesPage() {
         LinearLayout page = app.page();
+        if (app.nodeWizard != null) {
+            page.addView(app.nodeWizard.header());
+            LinearLayout.LayoutParams wizardParams = new LinearLayout.LayoutParams(-1, 0, 1f);
+            wizardParams.topMargin = app.dp(16);
+            page.addView(app.nodeWizard.content(), wizardParams);
+            return page;
+        }
         if (app.profileEditorOpen) {
             page.addView(app.profileEditor.buildProfileEditorHeader());
             LinearLayout.LayoutParams editorParams = new LinearLayout.LayoutParams(-1, 0, 1f);

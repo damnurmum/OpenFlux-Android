@@ -65,7 +65,6 @@ public final class MainActivity extends ThemedActivity {
 
     private static final int TUNNEL_PERMISSION_REQUEST = 42;
     private static final int NOTIFICATION_PERMISSION_REQUEST = 43;
-    private static final int NODE_WIZARD_REQUEST = 44;
     static final int QR_IMAGE_REQUEST = 45;
     static final int SCRIPT_SETTINGS_REQUEST = 47;
     static final int DEFAULT_MTU = 1400;
@@ -113,6 +112,8 @@ public final class MainActivity extends ThemedActivity {
     List<Profile> profiles = new ArrayList<>();
     long selectedProfileId = -1;
     boolean profileEditorOpen;
+    // Profiles → «Установить ноду на VPS» while it is open, else null.
+    NodeWizard nodeWizard;
 
     // The live settings; SettingsPage edits drafts of them.
     private SecureSettings secureSettings;
@@ -230,6 +231,10 @@ public final class MainActivity extends ThemedActivity {
             closeProfileEditor();
             return;
         }
+        if (currentPage == PAGE_PROFILES && nodeWizard != null) {
+            nodeWizard.leave();
+            return;
+        }
         // Another tab steps back to Home, as bottom-nav apps do; Home asks for
         // a second press so one stray swipe does not leave the app.
         if (currentPage != PAGE_HOME) {
@@ -256,13 +261,8 @@ public final class MainActivity extends ThemedActivity {
             }
             return;
         }
-        if (requestCode == NODE_WIZARD_REQUEST) {
-            profiles = profileStore.load();
-            selectedProfileId = profileStore.getSelectedId();
-            applySelectedProfileToFields();
-            int page = data == null ? PAGE_PROFILES
-                    : data.getIntExtra(NodeWizardActivity.EXTRA_NAV_PAGE, PAGE_PROFILES);
-            showPage(page >= PAGE_HOME && page <= PAGE_SETTINGS ? page : PAGE_PROFILES);
+        if (requestCode == NodeWizard.SSH_KEY_REQUEST) {
+            if (nodeWizard != null) nodeWizard.onKeyPicked(resultCode, data);
             return;
         }
         IntentResult scan = IntentIntegrator.parseActivityResult(requestCode, resultCode, data);
@@ -487,6 +487,9 @@ public final class MainActivity extends ThemedActivity {
         }
         item.setOnClickListener(v -> {
             if (page == currentPage) return;
+            // Leaving Profiles closes an open node wizard, which cannot stop
+            // in the middle of an SSH step.
+            if (nodeWizard != null && nodeWizard.busy()) return;
             tap(v);
             showPage(page);
         });
@@ -556,7 +559,13 @@ public final class MainActivity extends ThemedActivity {
             settingsPage.settingsDetailOpen = false;
             settingsPage.searchQuery = "";
         }
-        if (page != PAGE_PROFILES) profileEditorOpen = false;
+        if (page != PAGE_PROFILES) {
+            profileEditorOpen = false;
+            if (nodeWizard != null) {
+                nodeWizard.dispose();
+                nodeWizard = null;
+            }
+        }
         currentPage = page;
         pinnedSave = null;
         View pageView = page == PAGE_HOME ? homePage.buildHomePage()
@@ -621,7 +630,26 @@ public final class MainActivity extends ThemedActivity {
             Toast.makeText(this, "Отключите OpenFlux перед настройкой ноды", Toast.LENGTH_LONG).show();
             return;
         }
-        startActivityForResult(new Intent(this, NodeWizardActivity.class), NODE_WIZARD_REQUEST);
+        nodeWizard = new NodeWizard(this);
+        showPage(PAGE_PROFILES);
+    }
+
+    // saved: the wizard changed the profiles (made, or removed, a node's).
+    void closeNodeWizard(boolean saved) {
+        if (nodeWizard == null) return;
+        nodeWizard.dispose();
+        nodeWizard = null;
+        if (saved) {
+            profiles = profileStore.load();
+            selectedProfileId = profileStore.getSelectedId();
+            applySelectedProfileToFields();
+        }
+        showPage(PAGE_PROFILES);
+    }
+
+    @Override protected void onDestroy() {
+        if (nodeWizard != null) nodeWizard.dispose();
+        super.onDestroy();
     }
 
     // ---- Profiles ----
