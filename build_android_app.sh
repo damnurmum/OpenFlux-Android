@@ -72,10 +72,13 @@ fi
     # linker rejects by default since the 1.23 linkname hardening; no
     # release of anet has adapted to it yet. -checklinkname=0 downgrades
     # that to the old permissive behavior instead of a hard link failure.
+    # -trimpath keeps the build machine's paths (home directory, module
+    # cache) out of the published library, and makes builds reproducible.
     "$GOMOBILE_BIN" bind \
         -target=android \
         -androidapi=26 \
         -javapkg=io.openflux.bridge \
+        -trimpath \
         -ldflags="-checklinkname=0" \
         -o "$SCRIPT_DIR/android/app/libs/openflux.aar" \
         .
