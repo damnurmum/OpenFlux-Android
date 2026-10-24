@@ -122,7 +122,7 @@ final class VersionCheck {
         }
     }
 
-    private int compareVersions(String a, String b) {
+    static int compareVersions(String a, String b) {
         String[] partsA = a.split("\\.");
         String[] partsB = b.split("\\.");
         int length = Math.max(partsA.length, partsB.length);
@@ -134,7 +134,7 @@ final class VersionCheck {
         return 0;
     }
 
-    private int versionPart(String[] parts, int index) {
+    private static int versionPart(String[] parts, int index) {
         if (index >= parts.length) return 0;
         try {
             return Integer.parseInt(parts[index].replaceAll("[^0-9]", ""));

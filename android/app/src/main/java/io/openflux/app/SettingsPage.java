@@ -89,7 +89,7 @@ final class SettingsPage {
     // A row the search finds: its section, icon and title, the text on the
     // page to light up (usually the title itself), and other words people
     // may type for it.
-    private static final class SearchItem {
+    static final class SearchItem {
         final int tab, icon;
         final String title, target, words;
 
@@ -104,7 +104,7 @@ final class SettingsPage {
 
     // Titles here must match the rows built below, or the highlight finds
     // nothing (the section still opens).
-    private static java.util.List<SearchItem> searchItems() {
+    static java.util.List<SearchItem> searchItems() {
         java.util.List<SearchItem> items = new java.util.ArrayList<>(java.util.Arrays.asList(
                 item(SETTINGS_MODE, R.drawable.ic_lock, "Туннель", "vpn весь трафик режим"),
                 item(SETTINGS_MODE, R.drawable.ic_swap, "Прокси (SOCKS5)", "socks proxy режим"),
@@ -155,6 +155,21 @@ final class SettingsPage {
 
     private static String normalize(String value) {
         return value.toLowerCase(java.util.Locale.ROOT).replace('ё', 'е').trim();
+    }
+
+    // The rows a query finds: every word of it must appear in the row's
+    // title, its extra words or its section's name. Empty query, no rows.
+    static java.util.List<SearchItem> search(String query) {
+        java.util.List<SearchItem> found = new java.util.ArrayList<>();
+        String[] words = normalize(query).split("\\s+");
+        if (words[0].isEmpty()) return found;
+        for (SearchItem item : searchItems()) {
+            String haystack = normalize(item.title + " " + item.words + " " + settingsSectionTitle(item.tab));
+            boolean match = true;
+            for (String word : words) match &= haystack.contains(word);
+            if (match) found.add(item);
+        }
+        return found;
     }
 
     void openSettingsDetail(int tab) {
@@ -283,7 +298,7 @@ final class SettingsPage {
         return header;
     }
 
-    private String settingsSectionTitle(int tab) {
+    static String settingsSectionTitle(int tab) {
         switch (tab) {
             case SETTINGS_NETWORK: return "Сеть";
             case SETTINGS_APPS: return "Приложения";
@@ -315,13 +330,8 @@ final class SettingsPage {
     private void fillSettingsList() {
         LinearLayout list = settingsList;
         list.removeAllViews();
-        String[] words = normalize(searchQuery).split("\\s+");
-        if (!words[0].isEmpty()) {
-            for (SearchItem item : searchItems()) {
-                String haystack = normalize(item.title + " " + item.words + " " + settingsSectionTitle(item.tab));
-                boolean match = true;
-                for (String word : words) match &= haystack.contains(word);
-                if (!match) continue;
+        if (!normalize(searchQuery).isEmpty()) {
+            for (SearchItem item : search(searchQuery)) {
                 list.addView(settingsListRow(item.icon, item.title, settingsSectionTitle(item.tab), () -> {
                     hideKeyboard(list);
                     pendingHighlight = item.target;

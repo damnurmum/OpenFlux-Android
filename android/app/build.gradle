@@ -94,4 +94,8 @@ dependencies {
     // ProxyController: routes the captcha WebView through the tunnel when the
     // check belongs to the exit node.
     implementation "androidx.webkit:webkit:1.12.1"
+
+    testImplementation "junit:junit:4.13.2"
+    // Unit tests run on the JVM, where android.jar's org.json is only stubs.
+    testImplementation "org.json:json:20240303"
 }
