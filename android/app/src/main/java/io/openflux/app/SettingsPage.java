@@ -350,22 +350,34 @@ final class SettingsPage {
             app.groupTiles(list);
             return;
         }
-        list.addView(settingsListRow(R.drawable.ic_swap, "Режим работы",
-                MainActivity.modeLabel(app.connectionMode), SETTINGS_MODE));
-        list.addView(settingsListRow(R.drawable.ic_public, "Сеть",
-                "DNS-сервер и MTU", SETTINGS_NETWORK));
-        list.addView(settingsListRow(R.drawable.ic_apps, "Приложения",
-                "Какие приложения используют туннель", SETTINGS_APPS));
-        list.addView(settingsListRow(R.drawable.ic_routing, "Маршрутизация",
-                "Сайты и сервисы в обход туннеля", SETTINGS_ROUTING));
-        list.addView(settingsListRow(R.drawable.ic_dark_mode, "Вид",
-                "Тема и автопрокрутка логов", SETTINGS_INTERFACE));
-        list.addView(settingsListRow(R.drawable.ic_code, "JS-транспорты",
-                ScriptStore.experimental(app) ? "Экспериментально: включены" : "Экспериментально: выключены",
-                SETTINGS_SCRIPTS));
-        list.addView(settingsListRow(R.drawable.ic_info, "О проекте",
-                "Версии, исходный код и помощь", SETTINGS_ABOUT));
-        app.groupTiles(list);
+        // Short groups by purpose, as Android's own settings list them.
+        addSettingsGroup(list, "ПОДКЛЮЧЕНИЕ",
+                settingsListRow(R.drawable.ic_swap, "Режим работы",
+                        MainActivity.modeLabel(app.connectionMode), SETTINGS_MODE),
+                settingsListRow(R.drawable.ic_public, "Сеть",
+                        "DNS-сервер и MTU", SETTINGS_NETWORK),
+                settingsListRow(R.drawable.ic_apps, "Приложения",
+                        "Какие приложения используют туннель", SETTINGS_APPS),
+                settingsListRow(R.drawable.ic_routing, "Маршрутизация",
+                        "Сайты и сервисы в обход туннеля", SETTINGS_ROUTING));
+        addSettingsGroup(list, "ИНТЕРФЕЙС И ТРАНСПОРТЫ",
+                settingsListRow(R.drawable.ic_dark_mode, "Вид",
+                        "Тема и автопрокрутка логов", SETTINGS_INTERFACE),
+                settingsListRow(R.drawable.ic_code, "JS-транспорты",
+                        ScriptStore.experimental(app) ? "Экспериментально: включены" : "Экспериментально: выключены",
+                        SETTINGS_SCRIPTS));
+        addSettingsGroup(list, "О ПРИЛОЖЕНИИ",
+                settingsListRow(R.drawable.ic_info, "О проекте",
+                        "Версии, исходный код и помощь", SETTINGS_ABOUT));
+    }
+
+    private void addSettingsGroup(LinearLayout list, String title, View... rows) {
+        list.addView(app.sectionTitle(list, title));
+        LinearLayout group = new LinearLayout(app);
+        group.setOrientation(LinearLayout.VERTICAL);
+        for (View row : rows) group.addView(row, app.matchWrap());
+        app.groupTiles(group);
+        list.addView(group, app.tileParams());
     }
 
     private View buildSearchField() {
