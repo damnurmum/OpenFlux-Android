@@ -18,6 +18,7 @@ import android.os.Looper;
 import android.os.Vibrator;
 import android.view.Gravity;
 import android.view.View;
+import android.view.WindowInsets;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.animation.OvershootInterpolator;
@@ -93,6 +94,8 @@ public final class MainActivity extends ThemedActivity {
     private FrameLayout content;
     private boolean shellAnimated;
     private int navBottomInset;
+    // System bars at the sides (landscape), kept clear like the bottom one.
+    private int navLeftInset, navRightInset;
     private int gestureInset = -1;
     boolean keyboardOpen;
     // The pinned save button of the current page, if any; it stays down
@@ -352,19 +355,34 @@ public final class MainActivity extends ThemedActivity {
         root.addView(buildBottomNav(), navLayoutParams());
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             int bottom = insets.getSystemWindowInsetBottom();
-            // The first call happens before any keyboard can be open, so that
-            // bottom inset is purely the gesture-nav bar - remember it as the
-            // baseline. With windowSoftInputMode=adjustResize, opening the
-            // keyboard later inflates this same bottom inset by far more than
-            // any gesture bar ever is; treat that as "keyboard open" and hide
-            // the pill instead of letting it get dragged up with it.
-            if (gestureInset < 0) gestureInset = bottom;
-            keyboardOpen = bottom > gestureInset + dp(50);
-            navBottomInset = gestureInset;
+            if (Build.VERSION.SDK_INT >= 30) {
+                // The bars and the keyboard apart: right after a rotation too,
+                // which no longer recreates the activity.
+                android.graphics.Insets bars = insets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                int ime = insets.getInsets(WindowInsets.Type.ime()).bottom;
+                keyboardOpen = ime > bars.bottom + dp(50);
+                navBottomInset = bars.bottom;
+                navLeftInset = bars.left;
+                navRightInset = bars.right;
+            } else {
+                // The first call happens before any keyboard can be open, so that
+                // bottom inset is purely the gesture-nav bar - remember it as the
+                // baseline. With windowSoftInputMode=adjustResize, opening the
+                // keyboard later inflates this same bottom inset by far more than
+                // any gesture bar ever is; treat that as "keyboard open" and hide
+                // the pill instead of letting it get dragged up with it.
+                if (gestureInset < 0) gestureInset = bottom;
+                keyboardOpen = bottom > gestureInset + dp(50);
+                navBottomInset = gestureInset;
+                navLeftInset = insets.getSystemWindowInsetLeft();
+                navRightInset = insets.getSystemWindowInsetRight();
+            }
             // Edge-to-edge (targetSdk 35) means the window is not resized for
             // the keyboard: lift the page above it ourselves. The shrinking
             // ScrollView then brings the focused field back into view.
-            body.setPadding(side, top + insets.getSystemWindowInsetTop(), side, keyboardOpen ? bottom : 0);
+            body.setPadding(side + navLeftInset, top + insets.getSystemWindowInsetTop(),
+                    side + navRightInset, keyboardOpen ? bottom : 0);
             if (pinnedSave != null) pinnedSave.setVisibility(keyboardOpen ? View.GONE : View.VISIBLE);
             View nav = root.getChildAt(root.getChildCount() - 1);
             navScrim.setVisibility(keyboardOpen ? View.GONE : View.VISIBLE);
@@ -484,8 +502,8 @@ public final class MainActivity extends ThemedActivity {
     // currently known (see buildShell()'s insets listener).
     private FrameLayout.LayoutParams navLayoutParams() {
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-1, navHeight(), Gravity.BOTTOM);
-        params.leftMargin = dp(12);
-        params.rightMargin = dp(12);
+        params.leftMargin = dp(12) + navLeftInset;
+        params.rightMargin = dp(12) + navRightInset;
         params.bottomMargin = dp(10) + navBottomInset;
         return params;
     }
