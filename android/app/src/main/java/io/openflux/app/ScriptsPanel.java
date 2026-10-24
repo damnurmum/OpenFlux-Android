@@ -149,11 +149,13 @@ final class ScriptsPanel {
         }
         LinearLayout row = new LinearLayout(host);
         if (store.hasPrevious(s)) {
-            row.addView(button("Вернуть прошлую", false, () -> rollback(s)), new LinearLayout.LayoutParams(0, dp(42), 1f));
+            row.addView(host.tonalButton(R.drawable.ic_swap, "Вернуть прошлую", () -> rollback(s)),
+                    new LinearLayout.LayoutParams(0, dp(48), 1f));
         }
-        LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(0, dp(42), 1f);
+        LinearLayout.LayoutParams deleteParams = new LinearLayout.LayoutParams(0, dp(48), 1f);
         if (row.getChildCount() > 0) deleteParams.leftMargin = dp(8);
-        row.addView(button("Удалить", false, () -> ui.dialog()
+        // Red, like removing a profile.
+        row.addView(host.dangerButton(R.drawable.ic_delete, "Удалить", () -> ui.dialog()
                 .setTitle("Удалить «" + s.name + "»?")
                 .setMessage("Профили с этим транспортом не подключатся, пока его не установят снова.")
                 .setNegativeButton("Отмена", null)
