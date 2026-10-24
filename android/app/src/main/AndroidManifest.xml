@@ -30,6 +30,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -45,14 +46,16 @@
             </intent-filter>
         </activity>
 
-        <!-- The library's scanner is landscape-only by default. -->
+        <!-- The app stays upright, whatever the phone's auto-rotate says; the
+             library's scanner is landscape-only by default. -->
         <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
-            android:screenOrientation="fullSensor"
+            android:screenOrientation="portrait"
             tools:replace="screenOrientation" />
 
         <activity
             android:name=".CaptchaActivity"
+            android:screenOrientation="portrait"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleTask" />
@@ -61,6 +64,7 @@
              result, which a singleTask activity cannot return. -->
         <activity
             android:name=".CaptchaActivity$Settings"
+            android:screenOrientation="portrait"
             android:exported="false" />
 
         <service

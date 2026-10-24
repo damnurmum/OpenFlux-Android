@@ -40,7 +40,7 @@ final class ShareLinks {
                 .setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
                 .setPrompt("Наведите камеру на QR-код OpenFlux")
                 .setBeepEnabled(false)
-                .setOrientationLocked(false)
+                .setOrientationLocked(true)
                 .initiateScan();
     }
 
