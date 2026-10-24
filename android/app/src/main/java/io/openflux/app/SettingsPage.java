@@ -51,7 +51,9 @@ final class SettingsPage {
     EditText proxyUsernameInput;
     EditText proxyPasswordInput;
     private ImageButton proxyPasswordVisibilityButton;
-    private ImageView proxyShareQr;
+    // The proxy address card on «Режим работы», redrawn from the draft as
+    // its fields change.
+    private LinearLayout proxyShareCard;
     ScriptsPanel scriptsPanel;
 
     // Draft state for the Network/Mode settings sub-pages: edits only take
@@ -109,7 +111,8 @@ final class SettingsPage {
                 item(SETTINGS_MODE, R.drawable.ic_lock, "Туннель", "vpn весь трафик режим"),
                 item(SETTINGS_MODE, R.drawable.ic_swap, "Прокси (SOCKS5)", "socks proxy режим"),
                 item(SETTINGS_MODE, R.drawable.ic_power, "Выходная нода (L4)", "exit нода раздать интернет режим"),
-                item(SETTINGS_MODE, R.drawable.ic_swap, "Локальный порт SOCKS5", "порт прокси 1080"),
+                new SearchItem(SETTINGS_MODE, R.drawable.ic_swap, "Локальный порт SOCKS5", "Локальный порт",
+                        "порт прокси 1080"),
                 item(SETTINGS_MODE, R.drawable.ic_public, "Доступ из локальной сети", "lan wi-fi wifi прокси"),
                 item(SETTINGS_MODE, R.drawable.ic_lock, "Логин и пароль", "авторизация прокси пароль"),
                 item(SETTINGS_MODE, R.drawable.ic_power, "Отключить оптимизацию батареи", "батарея фон энергосбережение"),
@@ -554,12 +557,10 @@ final class SettingsPage {
 
     private View buildModeSettings() {
         LinearLayout section = app.page();
-        TextView hint = app.text(
+        section.addView(app.introText(
                 "Туннель направляет через систему весь трафик устройства. "
                         + "Прокси поднимает локальный SOCKS5-сервер без запроса разрешения на туннель - "
-                        + "адрес нужно указать вручную в приложениях, которые поддерживают прокси.",
-                12, app.secondary, false);
-        section.addView(hint, app.matchWrap());
+                        + "адрес нужно указать вручную в приложениях, которые поддерживают прокси."));
 
         String[] modes = {MainActivity.MODE_TUNNEL, MainActivity.MODE_PROXY, MainActivity.MODE_EXIT};
         Runnable[] onModeChanged = new Runnable[1];
@@ -571,80 +572,58 @@ final class SettingsPage {
             editorConnectionMode = modes[i];
             onModeChanged[0].run();
         });
-        LinearLayout.LayoutParams modeGroupParams = app.matchWrap();
-        modeGroupParams.topMargin = app.dp(14);
-        section.addView(modeChoice, modeGroupParams);
+        section.addView(modeChoice, app.tileParams());
 
-        TextView exitHint = app.text(
+        TextView exitHint = app.fieldHint(
                 "Телефон станет выходной нодой: клиенты подключаются к нему через транспорт "
                         + "выбранного профиля, их трафик выходит в интернет с IP телефона. Профиль "
                         + "должен совпадать с профилем клиента (тот же документ, ключ и режим). Для "
                         + "Direct укажите адрес прослушивания, например 0.0.0.0:8445. Экран можно "
-                        + "выключать, нода продолжит работу.",
-                12, app.secondary, false);
+                        + "выключать, нода продолжит работу.");
         app.setInitialVisibility(exitHint, MainActivity.MODE_EXIT.equals(editorConnectionMode));
-        LinearLayout.LayoutParams exitHintParams = app.matchWrap();
-        exitHintParams.topMargin = app.dp(10);
-        exitHintParams.leftMargin = app.dp(4);
-        exitHintParams.rightMargin = app.dp(4);
-        section.addView(exitHint, exitHintParams);
+        section.addView(exitHint);
 
-        boolean proxySelected = MainActivity.MODE_PROXY.equals(editorConnectionMode);
+        // The proxy's own settings, shown with their title only in proxy mode.
+        LinearLayout proxyBlock = new LinearLayout(app);
+        proxyBlock.setOrientation(LinearLayout.VERTICAL);
+        app.setInitialVisibility(proxyBlock, MainActivity.MODE_PROXY.equals(editorConnectionMode));
+        LinearLayout.LayoutParams proxyBlockParams = app.matchWrap();
+        proxyBlockParams.topMargin = app.dp(ThemedActivity.SECTION_GAP);
+        section.addView(proxyBlock, proxyBlockParams);
+        proxyBlock.addView(app.sectionTitle(proxyBlock, "ПРОКСИ (SOCKS5)"));
 
         proxyPortInput = app.settingInput("Порт", String.valueOf(editorProxyPort), InputType.TYPE_CLASS_NUMBER);
-        View portRow = app.settingRow(R.drawable.ic_swap, "Локальный порт SOCKS5", proxyPortInput);
-        app.setInitialVisibility(portRow, proxySelected);
-        LinearLayout.LayoutParams portParams = app.matchWrap();
-        portParams.topMargin = app.dp(14);
-        section.addView(portRow, portParams);
+        proxyBlock.addView(app.settingRow(R.drawable.ic_swap, "Локальный порт", proxyPortInput), app.tileParams());
 
         Switch lanSwitch = app.settingSwitch(R.drawable.ic_public, "Доступ из локальной сети",
                 "Прокси станет виден другим устройствам в этой же Wi-Fi/LAN", editorProxyLanAccess);
-        View lanRow = (View) lanSwitch.getTag();
-        app.setInitialVisibility(lanRow, proxySelected);
-        LinearLayout.LayoutParams lanParams = app.matchWrap();
-        lanParams.topMargin = app.dp(8);
-        section.addView(lanRow, lanParams);
+        proxyBlock.addView((View) lanSwitch.getTag(), app.tileParams());
 
-        String localIp = app.getLocalIpAddress();
-        TextView lanAddressHint = app.text(
-                localIp != null
-                        ? "Адрес в сети: " + localIp + ":" + editorProxyPort
-                        : "Не удалось определить IP - проверьте подключение к Wi-Fi",
-                13, app.accent, true);
-        lanAddressHint.setPadding(app.dp(14), app.dp(12), app.dp(14), app.dp(12));
-        lanAddressHint.setBackground(app.rounded(app.darkMode ? Color.rgb(38, 50, 68) : Color.rgb(232, 240, 254),
-                Color.TRANSPARENT, 0, 10));
-        app.setInitialVisibility(lanAddressHint, proxySelected && editorProxyLanAccess);
-        LinearLayout.LayoutParams lanAddressParams = app.matchWrap();
-        lanAddressParams.topMargin = app.dp(8);
-        section.addView(lanAddressHint, lanAddressParams);
 
         Switch authSwitch = app.settingSwitch(R.drawable.ic_lock, "Логин и пароль",
                 "Требовать авторизацию для подключения к прокси", editorProxyAuthEnabled);
         View authRow = (View) authSwitch.getTag();
-        app.setInitialVisibility(authRow, proxySelected && editorProxyLanAccess);
-        LinearLayout.LayoutParams authParams = app.matchWrap();
-        authParams.topMargin = app.dp(8);
-        section.addView(authRow, authParams);
+        app.setInitialVisibility(authRow, editorProxyLanAccess);
+        proxyBlock.addView(authRow, app.tileParams());
         View lanWarningHint = app.fieldHint(
                 "Без пароля прокси в локальной сети открыт для всех: любой в этой Wi-Fi сможет "
                         + "ходить в интернет через ваш туннель.");
-        app.setInitialVisibility(lanWarningHint, proxySelected && editorProxyLanAccess);
-        section.addView(lanWarningHint);
+        app.setInitialVisibility(lanWarningHint, editorProxyLanAccess);
+        proxyBlock.addView(lanWarningHint);
 
         LinearLayout credentialsBlock = new LinearLayout(app);
         credentialsBlock.setOrientation(LinearLayout.VERTICAL);
-        app.setInitialVisibility(credentialsBlock, proxySelected && editorProxyLanAccess && editorProxyAuthEnabled);
-        LinearLayout.LayoutParams credentialsParams = app.matchWrap();
-        credentialsParams.topMargin = app.dp(10);
-        section.addView(credentialsBlock, credentialsParams);
+        app.setInitialVisibility(credentialsBlock, editorProxyLanAccess && editorProxyAuthEnabled);
+        // Starts with a floating-label field, which keeps its own room above.
+        LinearLayout.LayoutParams credentialsParams = app.tileParams();
+        credentialsParams.topMargin = app.fieldParams().topMargin;
+        proxyBlock.addView(credentialsBlock, credentialsParams);
 
         proxyUsernameInput = app.settingInput("Логин", app.proxyUsername, InputType.TYPE_CLASS_TEXT);
         credentialsBlock.addView(app.iconTextField(R.drawable.ic_person, proxyUsernameInput, null),
                 new LinearLayout.LayoutParams(-1, app.dp(ThemedActivity.FIELD_HEIGHT)));
         LinearLayout.LayoutParams passwordParams = new LinearLayout.LayoutParams(-1, app.dp(ThemedActivity.FIELD_HEIGHT));
-        passwordParams.topMargin = app.dp(4);
+        passwordParams.topMargin = app.dp(ThemedActivity.TILE_GAP);
         credentialsBlock.addView(buildProxyPasswordField(), passwordParams);
 
         Button generateCreds = new Button(app);
@@ -662,18 +641,9 @@ final class SettingsPage {
         generateParams.topMargin = app.dp(2);
         credentialsBlock.addView(generateCreds, generateParams);
 
-        View shareCard = buildProxyShareCard();
-        app.setInitialVisibility(shareCard, proxySelected);
-        LinearLayout.LayoutParams shareParams = app.matchWrap();
-        shareParams.topMargin = app.dp(14);
-        section.addView(shareCard, shareParams);
+        proxyBlock.addView(buildProxyShareCard(), app.tileParams());
 
-        TextView reliabilityTitle = app.label("НАДЁЖНОСТЬ");
-        LinearLayout.LayoutParams reliabilityTitleParams = app.matchWrap();
-        reliabilityTitleParams.topMargin = app.dp(26);
-        reliabilityTitleParams.bottomMargin = app.dp(8);
-        section.addView(reliabilityTitle, reliabilityTitleParams);
-
+        section.addView(app.sectionTitle(section, "НАДЁЖНОСТЬ"));
         LinearLayout batteryRow = app.cardRow(R.drawable.ic_power, "Отключить оптимизацию батареи",
                 "Чтобы система не убивала соединение в фоне");
         batteryRow.setClickable(true);
@@ -682,7 +652,7 @@ final class SettingsPage {
             app.bounce(v);
             requestIgnoreBatteryOptimizations();
         });
-        section.addView(batteryRow, app.matchWrap());
+        section.addView(batteryRow, app.tileParams());
 
         LinearLayout alwaysOnRow = app.cardRow(R.drawable.ic_lock, "Настройки Always-on Tunnel",
                 "Включите \"Блокировать соединения без туннеля\" для защиты от утечек при обрыве");
@@ -693,28 +663,18 @@ final class SettingsPage {
             app.startActivity(new Intent(Settings.ACTION_VPN_SETTINGS));
         });
         app.setInitialVisibility(alwaysOnRow, MainActivity.MODE_TUNNEL.equals(editorConnectionMode));
-        LinearLayout.LayoutParams alwaysOnParams = app.matchWrap();
-        alwaysOnParams.topMargin = app.dp(8);
-        section.addView(alwaysOnRow, alwaysOnParams);
+        section.addView(alwaysOnRow, app.tileParams());
 
         onModeChanged[0] = () -> {
-            boolean nowProxy = MainActivity.MODE_PROXY.equals(editorConnectionMode);
             app.setViewVisibleAnimated(exitHint, MainActivity.MODE_EXIT.equals(editorConnectionMode));
-            app.setViewVisibleAnimated(portRow, nowProxy);
-            app.setViewVisibleAnimated(lanRow, nowProxy);
-            app.setViewVisibleAnimated(lanAddressHint, nowProxy && editorProxyLanAccess);
-            app.setViewVisibleAnimated(authRow, nowProxy && editorProxyLanAccess);
-            app.setViewVisibleAnimated(lanWarningHint, nowProxy && editorProxyLanAccess);
-            app.setViewVisibleAnimated(credentialsBlock, nowProxy && editorProxyLanAccess && editorProxyAuthEnabled);
-            app.setViewVisibleAnimated(shareCard, nowProxy);
+            app.setViewVisibleAnimated(proxyBlock, MainActivity.MODE_PROXY.equals(editorConnectionMode));
             app.setViewVisibleAnimated(alwaysOnRow, MainActivity.MODE_TUNNEL.equals(editorConnectionMode));
         };
 
         lanSwitch.setOnCheckedChangeListener((button, checked) -> {
             app.tap(button);
             editorProxyLanAccess = checked;
-            if (proxyShareQr != null) app.setViewVisibleAnimated(proxyShareQr, checked);
-            app.setViewVisibleAnimated(lanAddressHint, checked);
+            fillProxyShareCard();
             app.setViewVisibleAnimated(authRow, checked);
             app.setViewVisibleAnimated(lanWarningHint, checked);
             app.setViewVisibleAnimated(credentialsBlock, checked && editorProxyAuthEnabled);
@@ -724,7 +684,16 @@ final class SettingsPage {
             app.tap(button);
             editorProxyAuthEnabled = checked;
             app.setViewVisibleAnimated(credentialsBlock, checked);
+            fillProxyShareCard();
         });
+        android.text.TextWatcher redrawCard = new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence t, int start, int count, int after) { }
+            @Override public void onTextChanged(CharSequence t, int start, int before, int count) { }
+            @Override public void afterTextChanged(android.text.Editable e) { fillProxyShareCard(); }
+        };
+        proxyPortInput.addTextChangedListener(redrawCard);
+        proxyUsernameInput.addTextChangedListener(redrawCard);
+        proxyPasswordInput.addTextChangedListener(redrawCard);
 
         return section;
     }
@@ -770,70 +739,89 @@ final class SettingsPage {
     // as the user edits fields above - consistent with how other settings
     // here only take effect after being saved/reopened.
     private View buildProxyShareCard() {
-        LinearLayout card = new LinearLayout(app);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(app.dp(16), app.dp(14), app.dp(16), app.dp(14));
-        card.setBackground(app.rounded(app.surface, app.border, 1, 11));
-        card.addView(app.text("Ссылка для подключения с другого устройства", 12, app.secondary, false));
+        proxyShareCard = new LinearLayout(app);
+        proxyShareCard.setOrientation(LinearLayout.VERTICAL);
+        fillProxyShareCard();
+        return proxyShareCard;
+    }
 
+    // The address other apps or devices connect to, from what is on the page
+    // now (saved or not): copy and share buttons, and a QR code when another
+    // device can reach it.
+    private void fillProxyShareCard() {
+        if (proxyShareCard == null) return;
+        proxyShareCard.removeAllViews();
+        boolean lan = editorProxyLanAccess;
         String link = proxyShareLink();
-        TextView linkView = app.text(link, 14, app.text, true);
-        linkView.setTextIsSelectable(true);
-        LinearLayout.LayoutParams linkParams = app.matchWrap();
-        linkParams.topMargin = app.dp(6);
-        card.addView(linkView, linkParams);
+        LinearLayout card = aboutCard(R.drawable.ic_link, "Адрес прокси", lan
+                ? "Для устройств в этой же Wi-Fi или локальной сети: скопируйте адрес или "
+                        + "отсканируйте QR-код с другого устройства."
+                : "Только для приложений на этом телефоне. Чтобы подключить другое устройство, "
+                        + "включите доступ из локальной сети.");
+        card.setBackground(app.rounded(app.surface, app.border, 1, ThemedActivity.TILE_RADIUS));
 
-        Button copyButton = new Button(app);
-        copyButton.setText("Копировать ссылку");
-        copyButton.setAllCaps(false);
-        copyButton.setTextColor(app.accent);
-        copyButton.setTextSize(13);
-        copyButton.setStateListAnimator(null);
-        copyButton.setBackground(app.ripple(Color.TRANSPARENT, 9));
-        copyButton.setOnClickListener(v -> {
-            app.bounce(v);
-            ClipboardManager clipboard = (ClipboardManager) app.getSystemService(app.CLIPBOARD_SERVICE);
-            if (clipboard != null) {
-                clipboard.setPrimaryClip(ClipData.newPlainText("OpenFlux SOCKS5", link));
-            }
-            Toast.makeText(app, "Ссылка скопирована", Toast.LENGTH_SHORT).show();
-        });
-        LinearLayout.LayoutParams copyParams = new LinearLayout.LayoutParams(-1, app.dp(40));
-        copyParams.topMargin = app.dp(2);
-        card.addView(copyButton, copyParams);
+        TextView address = app.text(link, 13, app.text, false);
+        address.setTypeface(Typeface.MONOSPACE);
+        address.setTextIsSelectable(true);
+        address.setPadding(app.dp(14), app.dp(12), app.dp(14), app.dp(12));
+        address.setBackground(app.rounded(app.tonal(0.1f), Color.TRANSPARENT, 0, 12));
+        LinearLayout.LayoutParams addressParams = app.matchWrap();
+        addressParams.topMargin = app.dp(12);
+        card.addView(address, addressParams);
 
-        Bitmap qr = generateQrBitmap(link, app.dp(180));
-        proxyShareQr = null;
+        LinearLayout.LayoutParams buttonsParams = app.matchWrap();
+        buttonsParams.topMargin = app.dp(12);
+        card.addView(buttonPair(
+                cardButton(R.drawable.ic_copy, "Копировать", () -> {
+                    app.getSystemService(ClipboardManager.class)
+                            .setPrimaryClip(ClipData.newPlainText("OpenFlux SOCKS5", link));
+                    // Android 13+ confirms a copy itself.
+                    if (android.os.Build.VERSION.SDK_INT < 33) {
+                        Toast.makeText(app, "Адрес скопирован", Toast.LENGTH_SHORT).show();
+                    }
+                }),
+                cardButton(R.drawable.ic_share, "Поделиться", () -> app.startActivity(Intent.createChooser(
+                        new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, link),
+                        "Адрес прокси")))),
+                buttonsParams);
+
+        Bitmap qr = lan ? generateQrBitmap(link, app.dp(180)) : null;
         if (qr != null) {
-            // Only another device can scan it, which needs LAN access.
+            // The code carries its own white quiet zone; the rounded white
+            // backing only softens the corners.
             ImageView qrView = new ImageView(app);
             qrView.setImageBitmap(qr);
-            app.setInitialVisibility(qrView, editorProxyLanAccess);
-            proxyShareQr = qrView;
+            qrView.setBackground(app.rounded(Color.WHITE, Color.TRANSPARENT, 0, 12));
+            qrView.setClipToOutline(true);
             LinearLayout.LayoutParams qrParams = new LinearLayout.LayoutParams(app.dp(180), app.dp(180));
-            qrParams.topMargin = app.dp(10);
+            qrParams.topMargin = app.dp(16);
             qrParams.gravity = Gravity.CENTER_HORIZONTAL;
             card.addView(qrView, qrParams);
         }
-
-        return card;
+        proxyShareCard.addView(card, app.matchWrap());
     }
 
     private String proxyShareLink() {
-        String host = app.proxyLanAccess ? app.getLocalIpAddress() : null;
+        String host = editorProxyLanAccess ? app.getLocalIpAddress() : null;
         if (host == null) host = "127.0.0.1";
+        String port = proxyPortInput != null ? proxyPortInput.getText().toString().trim() : "";
+        if (port.isEmpty()) port = String.valueOf(editorProxyPort);
         String auth = "";
-        if (app.proxyLanAccess && app.proxyAuthEnabled && !app.proxyUsername.isEmpty()) {
-            auth = app.proxyUsername + ":" + app.proxyPassword + "@";
+        String user = proxyUsernameInput != null ? proxyUsernameInput.getText().toString() : "";
+        if (editorProxyLanAccess && editorProxyAuthEnabled && !user.isEmpty()) {
+            String password = proxyPasswordInput != null ? proxyPasswordInput.getText().toString() : "";
+            auth = user + ":" + password + "@";
         }
-        return "socks://" + auth + host + ":" + app.proxyPort;
+        return "socks://" + auth + host + ":" + port;
     }
 
     private Bitmap generateQrBitmap(String content, int sizePx) {
         try {
             BitMatrix matrix = new QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx);
-            int foreground = app.darkMode ? Color.WHITE : Color.BLACK;
-            int background = app.darkMode ? Color.BLACK : Color.WHITE;
+            // Dark on light in both themes: camera scanners expect it, and
+            // many do not read an inverted code.
+            int foreground = Color.BLACK;
+            int background = Color.WHITE;
             Bitmap bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.RGB_565);
             for (int x = 0; x < sizePx; x++) {
                 for (int y = 0; y < sizePx; y++) {
