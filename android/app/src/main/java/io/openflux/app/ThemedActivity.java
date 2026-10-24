@@ -414,13 +414,13 @@ abstract class ThemedActivity extends Activity {
     }
 
     // Material 3 segmented button: one pill split into equal segments, the
-    // picked one tonal with a leading check.
+    // picked one tonal with an accent label. No check mark: it crowded the
+    // label in the narrow segments and shifted it on every pick.
     View segmented(String[] labels, int selected, java.util.function.IntConsumer onPick) {
         LinearLayout bar = new LinearLayout(this);
         int n = labels.length;
         LinearLayout[] segments = new LinearLayout[n];
         TextView[] titles = new TextView[n];
-        ImageView[] checks = new ImageView[n];
         int[] current = {selected};
         Runnable paint = () -> {
             for (int i = 0; i < n; i++) {
@@ -429,24 +429,18 @@ abstract class ThemedActivity extends Activity {
                 segments[i].setBackground(tile(on ? tonal(0.18f) : surface, on ? tonal(0.45f) : border,
                         new float[]{left, left, right, right, right, right, left, left}));
                 titles[i].setTextColor(on ? accent : text);
-                checks[i].setVisibility(on ? View.VISIBLE : View.GONE);
             }
         };
         for (int i = 0; i < n; i++) {
             int index = i;
             LinearLayout segment = new LinearLayout(this);
             segment.setGravity(Gravity.CENTER);
-            checks[i] = icon(R.drawable.ic_check, accent);
-            LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(dp(18), dp(18));
-            checkParams.rightMargin = dp(6);
-            segment.addView(checks[i], checkParams);
             titles[i] = text(labels[i], 14, text, true);
             segment.addView(titles[i]);
             segment.setOnClickListener(v -> {
                 if (current[0] == index) return;
                 tap(v);
                 current[0] = index;
-                android.transition.TransitionManager.beginDelayedTransition(bar);
                 paint.run();
                 onPick.accept(index);
             });
